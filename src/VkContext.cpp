@@ -222,24 +222,46 @@ static bool createCommandPool() noexcept
     return !VK_FAILED(vkCreateCommandPool(ctx->device, &poolInfo, nullptr, &ctx->commandPool));
 }
 
+static bool createCommandBuffer() noexcept
+{
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = ctx->commandPool;
+    allocInfo.commandBufferCount = 1;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    if (VK_FAILED(vkAllocateCommandBuffers(ctx->device, &allocInfo, &ctx->commandBuffer)))
+    {
+        return false;
+    }
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(ctx->commandBuffer, &beginInfo);
+
+    return true;
+}
+
 static bool createDescriptorPool(const Args& args) noexcept
 {
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    poolSize.descriptorCount = 2;
+    poolSize.descriptorCount = 1000;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = 1;
     poolInfo.pPoolSizes = &poolSize;
-    poolInfo.maxSets = 2;
+    poolInfo.maxSets = 1000;
 
     return !VK_FAILED(vkCreateDescriptorPool(ctx->device, &poolInfo, nullptr, &ctx->descriptorPool));
 }
 
-static bool createDescriptorSetLayout() noexcept
+static bool createDescriptorSetLayouts() noexcept
 {
-    std::array<VkDescriptorSetLayoutBinding, 2> layoutBindings{};
+    std::vector<VkDescriptorSetLayoutBinding> layoutBindings(ctx->descriptorSetLayouts.size() + 1);
     for (int i = 0; i < layoutBindings.size(); ++i)
     {
         layoutBindings[i].binding = i;
@@ -248,12 +270,19 @@ static bool createDescriptorSetLayout() noexcept
         layoutBindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     }
 
-    VkDescriptorSetLayoutCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    createInfo.bindingCount = layoutBindings.size();
-    createInfo.pBindings = layoutBindings.data();
+    for (int i = 0; i < ctx->descriptorSetLayouts.size(); ++i)
+    {
+        VkDescriptorSetLayoutCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        createInfo.bindingCount = i + 2;
+        createInfo.pBindings = layoutBindings.data();
 
-    return !VK_FAILED(vkCreateDescriptorSetLayout(ctx->device, &createInfo, nullptr, &ctx->descriptorSetLayout));
+        if (VK_FAILED(vkCreateDescriptorSetLayout(ctx->device, &createInfo, nullptr, &ctx->descriptorSetLayouts[i])))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool initContext(const Args& args)
@@ -287,15 +316,21 @@ static bool initContext(const Args& args)
         return false;
     }
 
-    if (!createDescriptorSetLayout())
+    if (!createDescriptorSetLayouts())
     {
-        std::cout << "Failed to create vulkan descriptor set layout\n";
+        std::cout << "Failed to create vulkan descriptor set layouts\n";
         return false;
     }
 
     if (!createCommandPool())
     {
         std::cout << "Failed to create vulkan command pool\n";
+        return false;
+    }
+
+    if (!createCommandBuffer())
+    {
+        std::cout << "Failed to create vulkan command buffer\n";
         return false;
     }
 
@@ -319,12 +354,105 @@ void cleanup() noexcept
 #endif
     vkDestroyCommandPool(ctx->device, ctx->commandPool, nullptr);
 
-    vkDestroyDescriptorSetLayout(ctx->device, ctx->descriptorSetLayout, nullptr);
+    for (int i = 0; i < ctx->descriptorSetLayouts.size(); ++i)
+    {
+        vkDestroyDescriptorSetLayout(ctx->device, ctx->descriptorSetLayouts[i], nullptr);
+    }
 
     vkDestroyDescriptorPool(ctx->device, ctx->descriptorPool, nullptr);
 
     vkDestroyDevice(ctx->device, nullptr);
 
     vkDestroyInstance(ctx->instance, nullptr);
+}
+
+[[nodiscard]] VkCommandBuffer beginCommandBuffer() noexcept
+{
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = ctx->commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    if (VK_FAILED(vkAllocateCommandBuffers(ctx->device, &allocInfo, &commandBuffer)))
+    {
+        std::cout << "Failed to allocate vulkan command buffer\n";
+        return nullptr;
+    }
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    if (VK_FAILED(vkBeginCommandBuffer(commandBuffer, &beginInfo)))
+    {
+        std::cout << "Failed to begin vulkan command buffer\n";
+        return nullptr;
+    }
+
+    return commandBuffer;
+}
+
+[[nodiscard]] bool endCommandBuffer(VkCommandBuffer commandBuffer,
+                                    const std::vector<VkSemaphore>& waitSemaphores,
+                                    const std::vector<VkPipelineStageFlags>& waitStages,
+                                    VkSubmitInfo& submitInfo) noexcept
+{
+    if (VK_FAILED(vkEndCommandBuffer(commandBuffer)))
+    {
+        std::cout << "Failed to end vulkan command buffer\n";
+        return false;
+    }
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkSemaphore signalSemaphore{};
+    if (VK_FAILED(vkCreateSemaphore(ctx->device, &semaphoreInfo, nullptr, &signalSemaphore)))
+    {
+        std::cout << "Failed to create vulkan semaphore\n";
+        return false;
+    }
+
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+    submitInfo.waitSemaphoreCount = waitSemaphores.size();
+    submitInfo.pWaitDstStageMask = waitStages.data();
+    submitInfo.pWaitSemaphores = waitSemaphores.data();
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = &signalSemaphore;
+    return true;
+}
+
+bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags, int& memoryType) noexcept
+{
+    VkPhysicalDeviceMemoryProperties memProperties{};
+    vkGetPhysicalDeviceMemoryProperties(vulkan::ctx->gpu, &memProperties);
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; ++i)
+    {
+        if (typeFilter & (1 << i) && (memProperties.memoryTypes[i].propertyFlags & propertyFlags) == propertyFlags)
+        {
+            memoryType = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+VkImageMemoryBarrier createImageMemoryBarrier() noexcept
+{
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    return barrier;
 }
 } // namespace flint::vulkan

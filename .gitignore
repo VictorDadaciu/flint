@@ -2,3 +2,4 @@
 .vscode
 .clang-format
 build
+*.spv

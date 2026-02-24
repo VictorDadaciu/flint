@@ -17,12 +17,17 @@ struct VkContext
     uint8_t queueFamilyIndex{};
     VkQueue queue{};
     VkCommandPool commandPool{};
+    VkCommandBuffer commandBuffer{};
     VkDescriptorPool descriptorPool{};
-    VkDescriptorSetLayout descriptorSetLayout{};
+    std::array<VkDescriptorSetLayout, 3> descriptorSetLayouts{};
 };
 
 bool init(const Args&) noexcept;
 void cleanup() noexcept;
+
+bool findMemoryType(uint32_t, VkMemoryPropertyFlags, int&) noexcept;
+
+VkImageMemoryBarrier createImageMemoryBarrier() noexcept;
 
 extern std::unique_ptr<VkContext> ctx;
 } // namespace flint::vulkan

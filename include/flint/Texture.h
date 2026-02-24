@@ -1,56 +1,30 @@
 #pragma once
 
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
-namespace flint
+namespace flint::vulkan
 {
-struct RawImage
+constexpr int LOCAL_WORK_SIZE = 32;
+
+extern struct ImageMetadata
 {
-    const char* filepath = nullptr;
-    unsigned char* raw = nullptr;
-    int width = -1;
-    int height = -1;
-    int channels = -1;
+    int width{};
+    int height{};
+    int groupX{};
+    int groupY{};
 
-    RawImage() = default;
+    inline int resolution() const noexcept { return width * height; }
 
-    RawImage(const char* path);
-
-    RawImage(RawImage& other) noexcept;
-
-    RawImage(RawImage&& other) noexcept;
-
-    void operator=(RawImage& other) noexcept;
-
-    void operator=(RawImage&& other) noexcept;
-
-    inline bool valid() const noexcept { return raw != nullptr; }
-
-    ~RawImage();
-};
+    inline int size() const noexcept { return resolution() * 4; }
+} imageMetadata;
 
 struct Texture
 {
     VkImage image{};
     VkDeviceMemory memory{};
     VkImageView imageView{};
-    VkDescriptorSet descriptorSet{};
-
-    Texture() = default;
-
-    Texture(Texture&) noexcept;
-
-    Texture(Texture&&) noexcept;
-
-    void operator=(Texture&) noexcept;
-
-    void operator=(Texture&&) noexcept;
 
     void cleanup() noexcept;
-
-    ~Texture() = default;
 };
-
-void createTextureOnDevice(const RawImage&, Texture&) noexcept;
-void createTextureOnHostAndCopyToDevice(const RawImage&, Texture&) noexcept;
-} // namespace flint
+} // namespace flint::vulkan

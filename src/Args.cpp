@@ -1,7 +1,6 @@
 #include "Args.h"
 
 #include "FilterUtils.h"
-#include "Texture.h"
 
 #include <cstring>
 #include <iostream>
@@ -54,14 +53,14 @@ static int optionIndex(const char* option) noexcept
 
 static FilterType parsefilterType(const char* arg) noexcept
 {
-    for (int i = 0; i < (size_t)FilterType::COUNT; ++i)
+    for (int i = 0; i < (size_t)FilterType::count; ++i)
     {
         if (strcmp(filterStrings[i], arg) == 0)
         {
             return (FilterType)i;
         }
     }
-    return FilterType::COUNT;
+    return FilterType::count;
 }
 
 bool parseArgs(int argc, const char* argv[], Args& args)
@@ -94,7 +93,7 @@ bool parseArgs(int argc, const char* argv[], Args& args)
             switch (option)
             {
             case 0:
-                args.imageData = RawImage(param);
+                args.path = param;
                 break;
             case 1:
                 args.filterType = parsefilterType(param);
@@ -106,12 +105,7 @@ bool parseArgs(int argc, const char* argv[], Args& args)
             }
         }
     }
-    if (!args.imageData.valid())
-    {
-        std::cout << "Image path provided is not a valid image path.\n";
-        return false;
-    }
-    if (args.filterType == FilterType::COUNT)
+    if (args.filterType == FilterType::count)
     {
         std::cout << "Filter type provided is not a valid filter. Run \"flint --help\" to see list of valid filters.\n";
         return false;
