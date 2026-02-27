@@ -3,6 +3,7 @@
 #include "Args.h"
 #include "ImageCreationStage.h"
 #include "Submission.h"
+#include "Texture.h"
 
 #include <vulkan/vulkan.h>
 
@@ -11,7 +12,7 @@ namespace flint::vulkan
 class LoadImageStage final : public ImageCreationStage
 {
 public:
-    LoadImageStage(const Args&);
+    LoadImageStage(Texture&, const Args&);
 
     void cleanup() noexcept override;
 

@@ -1,18 +1,25 @@
 #include "stages/ImageCreationStage.h"
 
+#include "Texture.h"
 #include "VkContext.h"
 
 #include <iostream>
+#include <vk_video/vulkan_video_codec_av1std.h>
+#include <vulkan/vulkan_core.h>
 
 namespace flint::vulkan
 {
+
+ImageCreationStage::ImageCreationStage(Texture& tex) : m_tex(tex)
+{
+}
+
 void ImageCreationStage::cleanup() noexcept
 {
     m_valid = false;
-    m_tex.cleanup();
 }
 
-bool ImageCreationStage::createImage(VkImageUsageFlags transferUsage) noexcept
+bool ImageCreationStage::createImage() noexcept
 {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -25,7 +32,7 @@ bool ImageCreationStage::createImage(VkImageUsageFlags transferUsage) noexcept
     imageInfo.format = VK_FORMAT_R8G8B8A8_UINT;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | transferUsage;
+    imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 
@@ -79,6 +86,37 @@ bool ImageCreationStage::createImageView() noexcept
         return false;
     }
 
+    return true;
+}
+
+bool ImageCreationStage::createDescriptorSet() noexcept
+{
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = ctx->descriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &ctx->descriptorSetLayout;
+
+    if (VK_FAILED(vkAllocateDescriptorSets(ctx->device, &allocInfo, &m_tex.descriptorSet)))
+    {
+        std::cout << "Failed to allocate descriptor set\n";
+        return false;
+    }
+
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    imageInfo.imageView = m_tex.imageView;
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    write.dstArrayElement = 0;
+    write.dstBinding = 0;
+    write.pImageInfo = &imageInfo;
+    write.dstSet = m_tex.descriptorSet;
+
+    vkUpdateDescriptorSets(ctx->device, 1, &write, 0, nullptr);
     return true;
 }
 } // namespace flint::vulkan

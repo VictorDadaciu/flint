@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Args.h"
+#include "Texture.h"
 #include "stages/FilterStage.h"
 
 #include <memory>
@@ -25,9 +26,14 @@ protected:
         {
             m_stages[i]->cleanup();
         }
+        for (int i = 0; i < m_texes.size(); ++i)
+        {
+            m_texes[i].cleanup();
+        }
     }
 
     std::vector<std::unique_ptr<FilterStage>> m_stages{};
+    std::vector<vulkan::Texture> m_texes{};
     bool m_valid{};
 };
 } // namespace flint::detail

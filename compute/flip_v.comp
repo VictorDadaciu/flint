@@ -1,8 +1,8 @@
 #version 460
 
-layout(binding = 0, rgba8ui) uniform readonly uimage2D inputImg;
+layout(set = 0, binding = 0, rgba8ui) uniform readonly uimage2D inputImg;
 
-layout(binding = 1, rgba8ui) uniform writeonly uimage2D outputImg;
+layout(set = 1, binding = 0, rgba8ui) uniform writeonly uimage2D outputImg;
 
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 

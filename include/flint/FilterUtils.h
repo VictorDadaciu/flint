@@ -4,7 +4,7 @@
 
 namespace flint
 {
-#define FILTER_ENUM(v1, v2, v3, v4, v5)                                                                                \
+#define FILTER_ENUM(v1, v2, v3, v4, v5, v6)                                                                            \
     enum class FilterType                                                                                              \
     {                                                                                                                  \
         v1,                                                                                                            \
@@ -12,6 +12,7 @@ namespace flint
         v3,                                                                                                            \
         v4,                                                                                                            \
         v5,                                                                                                            \
+        v6,                                                                                                            \
         count                                                                                                          \
     };                                                                                                                 \
     static const char* filterStrings[] = {                                                                             \
@@ -20,7 +21,8 @@ namespace flint
         #v3,                                                                                                           \
         #v4,                                                                                                           \
         #v5,                                                                                                           \
+        #v6,                                                                                                           \
     };
 
-FILTER_ENUM(identity, flip_h, flip_v, flip_all, kuwahara);
+FILTER_ENUM(identity, flip_h, flip_v, flip_all, sobel, kuwahara);
 } // namespace flint

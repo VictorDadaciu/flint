@@ -1,6 +1,5 @@
 #include "StagingBuffer.h"
 
-#include "FilterUtils.h"
 #include "Texture.h"
 #include "VkContext.h"
 

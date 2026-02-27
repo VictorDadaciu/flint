@@ -261,26 +261,20 @@ static bool createDescriptorPool(const Args& args) noexcept
 
 static bool createDescriptorSetLayouts() noexcept
 {
-    std::vector<VkDescriptorSetLayoutBinding> layoutBindings(ctx->descriptorSetLayouts.size() + 1);
-    for (int i = 0; i < layoutBindings.size(); ++i)
-    {
-        layoutBindings[i].binding = i;
-        layoutBindings[i].descriptorCount = 1;
-        layoutBindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        layoutBindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    }
+    VkDescriptorSetLayoutBinding layoutBinding{};
+    layoutBinding.binding = 0;
+    layoutBinding.descriptorCount = 1;
+    layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    layoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    for (int i = 0; i < ctx->descriptorSetLayouts.size(); ++i)
-    {
-        VkDescriptorSetLayoutCreateInfo createInfo{};
-        createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        createInfo.bindingCount = i + 2;
-        createInfo.pBindings = layoutBindings.data();
+    VkDescriptorSetLayoutCreateInfo createInfo{};
+    createInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    createInfo.bindingCount = 1;
+    createInfo.pBindings = &layoutBinding;
 
-        if (VK_FAILED(vkCreateDescriptorSetLayout(ctx->device, &createInfo, nullptr, &ctx->descriptorSetLayouts[i])))
-        {
-            return false;
-        }
+    if (VK_FAILED(vkCreateDescriptorSetLayout(ctx->device, &createInfo, nullptr, &ctx->descriptorSetLayout)))
+    {
+        return false;
     }
     return true;
 }
@@ -354,10 +348,7 @@ void cleanup() noexcept
 #endif
     vkDestroyCommandPool(ctx->device, ctx->commandPool, nullptr);
 
-    for (int i = 0; i < ctx->descriptorSetLayouts.size(); ++i)
-    {
-        vkDestroyDescriptorSetLayout(ctx->device, ctx->descriptorSetLayouts[i], nullptr);
-    }
+    vkDestroyDescriptorSetLayout(ctx->device, ctx->descriptorSetLayout, nullptr);
 
     vkDestroyDescriptorPool(ctx->device, ctx->descriptorPool, nullptr);
 

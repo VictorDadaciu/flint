@@ -15,5 +15,5 @@ void main()
     {
         return;
     }
-    imageStore(outputImg, coords, imageLoad(inputImg, ivec2(size.x - coords.x, coords.y)));
+    imageStore(outputImg, coords, imageLoad(inputImg, size - coords));
 }

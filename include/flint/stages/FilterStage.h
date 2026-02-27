@@ -10,7 +10,11 @@ namespace flint
 class FilterStage
 {
 public:
-    bool valid() const noexcept { return m_valid; }
+    inline bool valid() const noexcept { return m_valid; }
+
+    inline bool waitedOn() const noexcept { return m_waitedOn; }
+
+    inline void setWaitedOn(bool value) noexcept { m_waitedOn = value; }
 
     virtual inline const VkSemaphore& signal() const noexcept = 0;
 
@@ -24,5 +28,6 @@ public:
 
 protected:
     bool m_valid{};
+    bool m_waitedOn{};
 };
 } // namespace flint

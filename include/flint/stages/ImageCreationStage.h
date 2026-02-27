@@ -10,7 +10,7 @@ namespace flint::vulkan
 class ImageCreationStage : public FilterStage
 {
 public:
-    ImageCreationStage() = default;
+    ImageCreationStage(Texture&);
 
     inline const Texture& tex() const noexcept override { return m_tex; }
 
@@ -21,10 +21,12 @@ public:
     virtual void cleanup() noexcept override;
 
 protected:
-    bool createImage(VkImageUsageFlags) noexcept;
+    bool createImage() noexcept;
 
     bool createImageView() noexcept;
 
-    Texture m_tex{};
+    bool createDescriptorSet() noexcept;
+
+    Texture& m_tex;
 };
 } // namespace flint::vulkan

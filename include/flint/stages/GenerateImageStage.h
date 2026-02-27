@@ -2,13 +2,14 @@
 
 #include "ImageCreationStage.h"
 #include "Submission.h"
+#include "Texture.h"
 
 namespace flint::vulkan
 {
 class GenerateImageStage final : public ImageCreationStage
 {
 public:
-    GenerateImageStage(bool = false) noexcept;
+    GenerateImageStage(Texture& tex) noexcept;
 
     void cleanup() noexcept override;
 

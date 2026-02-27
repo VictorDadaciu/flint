@@ -19,7 +19,7 @@ struct VkContext
     VkCommandPool commandPool{};
     VkCommandBuffer commandBuffer{};
     VkDescriptorPool descriptorPool{};
-    std::array<VkDescriptorSetLayout, 3> descriptorSetLayouts{};
+    VkDescriptorSetLayout descriptorSetLayout{};
 };
 
 bool init(const Args&) noexcept;

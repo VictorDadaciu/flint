@@ -16,18 +16,18 @@ public:
         return {m_transferTransitionSubmission.info, m_copySubmission.info};
     };
 
-    inline const VkSemaphore& signal() const noexcept override { return m_copySubmission.semaphore; }
+    inline const Texture& tex() const noexcept override { return m_input->tex(); }
 
-    inline const Texture& tex() const noexcept override { return m_tex; }
+    inline const VkSemaphore& signal() const noexcept override { return m_copySubmission.semaphore; }
 
     void cleanup() noexcept override;
 
 private:
-    bool transitionImageToTransferSource(const VkSemaphore&) noexcept;
+    bool transitionImageToTransferSource() noexcept;
 
     bool copyImageToBuffer() noexcept;
 
-    const Texture& m_tex; // won't clean, non-owning
+    FilterStage* m_input; // won't clean, non-owning
     Submission m_transferTransitionSubmission{};
     Submission m_copySubmission{};
 };

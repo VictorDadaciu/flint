@@ -24,6 +24,7 @@ struct Texture
     VkImage image{};
     VkDeviceMemory memory{};
     VkImageView imageView{};
+    VkDescriptorSet descriptorSet{};
 
     void cleanup() noexcept;
 };

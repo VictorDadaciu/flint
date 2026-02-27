@@ -1,4 +1,4 @@
-#include "filters/FlipAll.h"
+#include "filters/Sobel.h"
 
 #include "stages/CopyImageToPCStage.h"
 #include "stages/FilterOp.h"
@@ -11,7 +11,7 @@
 
 namespace flint
 {
-FlipAll::FlipAll(const Args& args) noexcept
+Sobel::Sobel(const Args& args) noexcept
 {
     m_texes.resize(2);
     m_stages.resize(4);
@@ -20,7 +20,7 @@ FlipAll::FlipAll(const Args& args) noexcept
     {
         std::array<FilterStage*, 1> inputs{m_stages[0].get()};
         m_stages[2] = std::make_unique<vulkan::FilterOp<1>>(
-            "/home/victordadaciu/workspace/flint/compute/flip_all.comp.spv", inputs, m_stages[1].get());
+            "/home/victordadaciu/workspace/flint/compute/sobel.comp.spv", inputs, m_stages[1].get());
     }
     m_stages[3] = std::make_unique<vulkan::CopyImageToPCStage>(m_stages[2].get());
     for (int i = 0; i < m_stages.size(); ++i)

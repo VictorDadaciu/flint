@@ -1,11 +1,13 @@
 #include "filters/Filter.h"
 
+#include "FilterUtils.h"
 #include "StagingBuffer.h"
 #include "Texture.h"
 #include "VkContext.h"
 #include "filters/FlipAll.h"
 #include "filters/FlipHorizontal.h"
 #include "filters/FlipVertical.h"
+#include "filters/Sobel.h"
 #include "stages/FilterStage.h"
 
 #include <cmath>
@@ -92,6 +94,9 @@ bool applyFilters(const Args& args) noexcept
     case FilterType::flip_all:
         std::cout << "Flip all selected\n";
         return detail::FilterImpl<FlipAll>::apply(std::move(args));
+    case FilterType::sobel:
+        std::cout << "Sobel selected\n";
+        return detail::FilterImpl<Sobel>::apply(std::move(args));
     case FilterType::kuwahara:
         std::cout << "Kuwahara selected\n";
         break;

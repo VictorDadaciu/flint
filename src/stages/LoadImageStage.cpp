@@ -38,16 +38,12 @@ void LoadImageStage::cleanup() noexcept
     vkDestroySemaphore(ctx->device, m_transferTransitionSubmission.semaphore, nullptr);
 }
 
-LoadImageStage::LoadImageStage(const Args& args)
+LoadImageStage::LoadImageStage(Texture& tex, const Args& args) : ImageCreationStage(tex)
 {
-    if (!stagingBuffer.createFromRawImage(loadImage(args.path)))
-    {
-        cleanup();
-        return;
-    }
-
-    if (!(createImage(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) &&
+    if (!(stagingBuffer.createFromRawImage(loadImage(args.path)) &&
+          createImage() &&
           createImageView() &&
+          createDescriptorSet() &&
           transitionImageToTransferDestination() &&
           copyBufferToImage() &&
           transitionImageToGeneral()))

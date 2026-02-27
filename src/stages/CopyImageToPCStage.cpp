@@ -8,9 +8,9 @@
 
 namespace flint::vulkan
 {
-CopyImageToPCStage::CopyImageToPCStage(FilterStage* stage) noexcept : m_tex(stage->tex())
+CopyImageToPCStage::CopyImageToPCStage(FilterStage* input) noexcept : m_input(input)
 {
-    if (!(transitionImageToTransferSource(stage->signal()) && copyImageToBuffer()))
+    if (!(transitionImageToTransferSource() && copyImageToBuffer()))
     {
         cleanup();
     }
@@ -24,7 +24,7 @@ void CopyImageToPCStage::cleanup() noexcept
     vkDestroySemaphore(ctx->device, m_transferTransitionSubmission.semaphore, nullptr);
 }
 
-bool CopyImageToPCStage::transitionImageToTransferSource(const VkSemaphore& wait) noexcept
+bool CopyImageToPCStage::transitionImageToTransferSource() noexcept
 {
     if (!m_transferTransitionSubmission.begin())
     {
@@ -32,7 +32,7 @@ bool CopyImageToPCStage::transitionImageToTransferSource(const VkSemaphore& wait
     }
 
     auto barrier = createImageMemoryBarrier();
-    barrier.image = m_tex.image;
+    barrier.image = m_input->tex().image;
     barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -52,8 +52,12 @@ bool CopyImageToPCStage::transitionImageToTransferSource(const VkSemaphore& wait
                          1,
                          &barrier);
 
-    m_transferTransitionSubmission.waitSemaphores.push_back(wait);
-    m_transferTransitionSubmission.waitFlags.push_back(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+    if (!m_input->waitedOn())
+    {
+        m_transferTransitionSubmission.waitSemaphores.push_back(m_input->signal());
+        m_transferTransitionSubmission.waitFlags.push_back(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        m_input->setWaitedOn(true);
+    }
     return m_transferTransitionSubmission.end();
 }
 
@@ -78,7 +82,7 @@ bool CopyImageToPCStage::copyImageToBuffer() noexcept
     region.imageExtent = {(uint32_t)imageMetadata.width, (uint32_t)imageMetadata.height, 1};
 
     vkCmdCopyImageToBuffer(m_copySubmission.commandBuffer,
-                           m_tex.image,
+                           m_input->tex().image,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                            stagingBuffer.m_buffer,
                            1,

@@ -1,0 +1,44 @@
+#version 460
+
+layout(set = 0, binding = 0, rgba8ui) uniform readonly uimage2D inputImg;
+
+layout(set = 1, binding = 0, rgba8ui) uniform writeonly uimage2D outputImg;
+
+const int G_X[9] = int[](-1, 0, 1, -2, 0, 2, -1, 0, 1);
+const int G_Y[9] = int[](-1, -2, -1, 0, 0, 0, 1, 2, 1);
+
+int toInt(uvec4 pixel)
+{
+    return int(round(0.21 * float(pixel.r) + 0.77 * float(pixel.g) + 0.07 * float(pixel.b)));
+}
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+void main()
+{
+    ivec2 size = imageSize(inputImg);
+    ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
+    bool outOfBounds = coords.x >= size.x || coords.y >= size.y;
+    if (outOfBounds)
+    {
+        return;
+    }
+    int ogPixels[9] = int[](toInt(imageLoad(inputImg, coords + ivec2(-1, -1))),
+                            toInt(imageLoad(inputImg, coords + ivec2(0, -1))),
+                            toInt(imageLoad(inputImg, coords + ivec2(1, -1))),
+                            toInt(imageLoad(inputImg, coords + ivec2(-1, 0))),
+                            toInt(imageLoad(inputImg, coords + ivec2(0, 0))),
+                            toInt(imageLoad(inputImg, coords + ivec2(1, 0))),
+                            toInt(imageLoad(inputImg, coords + ivec2(-1, 1))),
+                            toInt(imageLoad(inputImg, coords + ivec2(0, 1))),
+                            toInt(imageLoad(inputImg, coords + ivec2(1, 1))));
+    int accX = 0;
+    int accY = 0;
+    for (int i = 0; i < 9; ++i)
+    {
+        accX += ogPixels[i] * G_X[i];
+        accY += ogPixels[i] * G_Y[i];
+    }
+
+    imageStore(outputImg, coords, uvec4(uvec3((round(sqrt((accX * accX + accY * accY))))), 255));
+}

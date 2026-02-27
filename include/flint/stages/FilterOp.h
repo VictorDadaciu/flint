@@ -4,9 +4,7 @@
 #include "Texture.h"
 #include "VkContext.h"
 #include "stages/FilterStage.h"
-#include "stages/GenerateImageStage.h"
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <fstream>
@@ -20,19 +18,14 @@ template<int Inputs>
 class FilterOp final : public FilterStage
 {
 public:
-    FilterOp(const char* path, const std::array<FilterStage*, Inputs>& stages, bool last = false) noexcept :
-        m_output(last)
+    FilterOp(const char* path, const std::array<FilterStage*, Inputs>& inputs, FilterStage* output) noexcept :
+        m_output(output)
     {
-        if (!m_output.valid())
-        {
-            cleanup();
-            return;
-        }
-
+        std::vector<VkDescriptorSetLayout> descriptorSets(Inputs + 1, ctx->descriptorSetLayout);
         VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &ctx->descriptorSetLayouts[Inputs - 1];
+        pipelineLayoutInfo.setLayoutCount = descriptorSets.size();
+        pipelineLayoutInfo.pSetLayouts = descriptorSets.data();
 
         if (VK_FAILED(vkCreatePipelineLayout(ctx->device, &pipelineLayoutInfo, nullptr, &m_pipelineLayout)))
         {
@@ -61,7 +54,7 @@ public:
 
         vkDestroyShaderModule(ctx->device, module, nullptr);
 
-        if (!execute(stages))
+        if (!execute(inputs))
         {
             cleanup();
             return;
@@ -69,108 +62,69 @@ public:
         m_valid = true;
     }
 
+    inline const Texture& tex() const noexcept override { return m_output->tex(); }
+
     inline const VkSemaphore& signal() const noexcept override { return m_submission.semaphore; }
 
-    inline std::vector<VkSubmitInfo> submitInfos() const noexcept override
-    {
-        std::vector<VkSubmitInfo> infos = m_output.submitInfos();
-        std::vector<VkSubmitInfo> ret(Inputs + 1);
-        for (int i = 0; i < Inputs; ++i)
-        {
-            ret[i] = infos[i];
-        }
-        ret[Inputs] = m_submission.info;
-        return ret;
-    }
-
-    inline const Texture& tex() const noexcept override { return m_output.tex(); }
+    inline std::vector<VkSubmitInfo> submitInfos() const noexcept override { return {m_submission.info}; }
 
     void cleanup() noexcept override
     {
         m_valid = false;
-        m_output.cleanup();
         vkDestroySemaphore(ctx->device, m_submission.semaphore, nullptr);
         vkDestroyPipelineLayout(ctx->device, m_pipelineLayout, nullptr);
         vkDestroyPipeline(ctx->device, m_pipeline, nullptr);
     }
 
 private:
-    bool execute(const std::array<FilterStage*, Inputs>& stages) noexcept
+    bool execute(const std::array<FilterStage*, Inputs>& inputs) noexcept
     {
-        VkDescriptorSet descriptorSet{};
-        if (!(allocateDescriptors(stages, descriptorSet) && m_submission.begin()))
+        if (!(m_submission.begin()))
         {
             cleanup();
             return false;
         }
 
         vkCmdBindPipeline(m_submission.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_pipeline);
+
+        for (int i = 0; i < Inputs; ++i)
+        {
+            vkCmdBindDescriptorSets(m_submission.commandBuffer,
+                                    VK_PIPELINE_BIND_POINT_COMPUTE,
+                                    m_pipelineLayout,
+                                    i,
+                                    1,
+                                    &inputs[i]->tex().descriptorSet,
+                                    0,
+                                    nullptr);
+        }
         vkCmdBindDescriptorSets(m_submission.commandBuffer,
                                 VK_PIPELINE_BIND_POINT_COMPUTE,
                                 m_pipelineLayout,
-                                0,
+                                Inputs,
                                 1,
-                                &descriptorSet,
+                                &m_output->tex().descriptorSet,
                                 0,
                                 nullptr);
 
         vkCmdDispatch(m_submission.commandBuffer, imageMetadata.groupX, imageMetadata.groupY, 1);
 
-        m_submission.waitSemaphores.resize(Inputs + 1);
-        std::transform(stages.cbegin(),
-                       stages.cend(),
-                       m_submission.waitSemaphores.begin(),
-                       [](FilterStage* stage) -> const VkSemaphore&
-                       {
-                           return stage->signal();
-                       });
-        m_submission.waitSemaphores[Inputs] = m_output.signal();
-        m_submission.waitFlags.resize(Inputs + 1, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+        for (FilterStage* input : inputs)
+        {
+            if (!input->waitedOn())
+            {
+                m_submission.waitSemaphores.push_back(input->signal());
+                m_submission.waitFlags.push_back(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+                input->setWaitedOn(true);
+            }
+        }
+        if (!m_output->waitedOn())
+        {
+            m_submission.waitSemaphores.push_back(m_output->signal());
+            m_submission.waitFlags.push_back(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+            m_output->setWaitedOn(true);
+        }
         return m_submission.end();
-    }
-
-    bool allocateDescriptors(const std::array<FilterStage*, Inputs>& stages, VkDescriptorSet& descriptorSet) noexcept
-    {
-        VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = ctx->descriptorPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &ctx->descriptorSetLayouts[Inputs - 1];
-
-        if (VK_FAILED(vkAllocateDescriptorSets(ctx->device, &allocInfo, &descriptorSet)))
-        {
-            std::cout << "Failed to allocate descriptor set\n";
-            return false;
-        }
-
-        std::array<VkDescriptorImageInfo, Inputs + 1> imageInfos{};
-        std::array<VkWriteDescriptorSet, Inputs + 1> descriptorWrites{};
-        for (int i = 0; i < descriptorWrites.size() - 1; ++i)
-        {
-            imageInfos[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-            imageInfos[i].imageView = stages[i]->tex().imageView;
-
-            descriptorWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            descriptorWrites[i].dstSet = descriptorSet;
-            descriptorWrites[i].dstBinding = i;
-            descriptorWrites[i].dstArrayElement = 0;
-            descriptorWrites[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-            descriptorWrites[i].descriptorCount = 1;
-            descriptorWrites[i].pImageInfo = &imageInfos[i];
-        }
-        imageInfos[Inputs].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        imageInfos[Inputs].imageView = m_output.tex().imageView;
-
-        descriptorWrites[Inputs].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptorWrites[Inputs].dstSet = descriptorSet;
-        descriptorWrites[Inputs].dstBinding = Inputs;
-        descriptorWrites[Inputs].dstArrayElement = 0;
-        descriptorWrites[Inputs].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        descriptorWrites[Inputs].descriptorCount = 1;
-        descriptorWrites[Inputs].pImageInfo = &imageInfos[Inputs];
-
-        vkUpdateDescriptorSets(ctx->device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
-        return true;
     }
 
     VkShaderModule createShaderModule(const char* path) const
@@ -203,7 +157,7 @@ private:
         return shaderModule;
     }
 
-    GenerateImageStage m_output{};
+    FilterStage* m_output{};
     VkPipeline m_pipeline{};
     VkPipelineLayout m_pipelineLayout{};
     Submission m_submission{};

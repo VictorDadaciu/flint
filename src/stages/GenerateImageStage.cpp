@@ -1,5 +1,6 @@
 #include "stages/GenerateImageStage.h"
 
+#include "Texture.h"
 #include "VkContext.h"
 #include "stages/ImageCreationStage.h"
 
@@ -7,9 +8,9 @@
 
 namespace flint::vulkan
 {
-GenerateImageStage::GenerateImageStage(bool last) noexcept
+GenerateImageStage::GenerateImageStage(Texture& tex) noexcept : ImageCreationStage(tex)
 {
-    if (!(createImage(last ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0) && createImageView() && transitionImageToGeneral()))
+    if (!(createImage() && createImageView() && createDescriptorSet() && transitionImageToGeneral()))
     {
         cleanup();
         return;
