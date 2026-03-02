@@ -2,7 +2,7 @@
 
 #include <vulkan/vulkan.h>
 
-namespace flint::vulkan
+namespace flint
 {
 extern struct StagingBuffer
 {
@@ -14,7 +14,7 @@ extern struct StagingBuffer
 
     void cleanup() noexcept;
 
-    VkBuffer m_buffer{};
-    VkDeviceMemory m_memory{};
+    VkBuffer buffer{};
+    VkDeviceMemory memory{};
 } stagingBuffer;
-} // namespace flint::vulkan
+} // namespace flint

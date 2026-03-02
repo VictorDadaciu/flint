@@ -9,14 +9,14 @@
 #include <stb_image.h>
 #include <vulkan/vulkan_core.h>
 
-namespace flint::vulkan
+namespace flint
 {
 StagingBuffer stagingBuffer{};
 
 void StagingBuffer::cleanup() noexcept
 {
-    vkDestroyBuffer(ctx->device, m_buffer, nullptr);
-    vkFreeMemory(ctx->device, m_memory, nullptr);
+    vkDestroyBuffer(ctx->device, buffer, nullptr);
+    vkFreeMemory(ctx->device, memory, nullptr);
 }
 
 bool StagingBuffer::createFromRawImage(unsigned char* raw)
@@ -27,7 +27,7 @@ bool StagingBuffer::createFromRawImage(unsigned char* raw)
     bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (VK_FAILED(vkCreateBuffer(ctx->device, &bufferInfo, nullptr, &m_buffer)))
+    if (VK_FAILED(vkCreateBuffer(ctx->device, &bufferInfo, nullptr, &buffer)))
     {
         std::cout << "Failed to create vulkan buffer\n";
         stbi_image_free(raw);
@@ -36,7 +36,7 @@ bool StagingBuffer::createFromRawImage(unsigned char* raw)
     }
 
     VkMemoryRequirements memRequirements{};
-    vkGetBufferMemoryRequirements(ctx->device, m_buffer, &memRequirements);
+    vkGetBufferMemoryRequirements(ctx->device, buffer, &memRequirements);
     int memoryTypeIndex{};
     if (!findMemoryType(memRequirements.memoryTypeBits,
                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -53,7 +53,7 @@ bool StagingBuffer::createFromRawImage(unsigned char* raw)
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = memoryTypeIndex;
 
-    if (VK_FAILED(vkAllocateMemory(ctx->device, &allocInfo, nullptr, &m_memory)))
+    if (VK_FAILED(vkAllocateMemory(ctx->device, &allocInfo, nullptr, &memory)))
     {
         std::cout << "Failed to allocate memory on device for vulkan buffer\n";
         stbi_image_free(raw);
@@ -61,12 +61,12 @@ bool StagingBuffer::createFromRawImage(unsigned char* raw)
         return false;
     }
 
-    vkBindBufferMemory(ctx->device, m_buffer, m_memory, 0);
+    vkBindBufferMemory(ctx->device, buffer, memory, 0);
 
     void* data{};
-    vkMapMemory(ctx->device, m_memory, 0, imageMetadata.size(), 0, &data);
+    vkMapMemory(ctx->device, memory, 0, imageMetadata.size(), 0, &data);
     memcpy(data, raw, imageMetadata.size());
-    vkUnmapMemory(ctx->device, m_memory);
+    vkUnmapMemory(ctx->device, memory);
     stbi_image_free(raw);
     return true;
 }
@@ -75,9 +75,9 @@ unsigned char* StagingBuffer::getAsRawImage() const noexcept
 {
     unsigned char* ret = new unsigned char[imageMetadata.size()];
     void* data{};
-    vkMapMemory(ctx->device, m_memory, 0, imageMetadata.size(), 0, &data);
+    vkMapMemory(ctx->device, memory, 0, imageMetadata.size(), 0, &data);
     memcpy(ret, data, imageMetadata.size());
-    vkUnmapMemory(ctx->device, m_memory);
+    vkUnmapMemory(ctx->device, memory);
     return ret;
 }
-} // namespace flint::vulkan
+} // namespace flint

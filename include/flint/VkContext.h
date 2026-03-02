@@ -5,7 +5,7 @@
 #include <memory>
 #include <vulkan/vulkan.h>
 
-namespace flint::vulkan
+namespace flint
 {
 #define VK_FAILED(x) (x != VK_SUCCESS)
 
@@ -30,4 +30,4 @@ bool findMemoryType(uint32_t, VkMemoryPropertyFlags, int&) noexcept;
 VkImageMemoryBarrier createImageMemoryBarrier() noexcept;
 
 extern std::unique_ptr<VkContext> ctx;
-} // namespace flint::vulkan
+} // namespace flint

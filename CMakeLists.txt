@@ -25,7 +25,7 @@ add_executable(${PROJECT_NAME} ${FLINT_SOURCES})
 target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    Vulkan
+    ${Vulkan_INCLUDE_DIRS}
     ${FETCHCONTENT_BASE_DIR}/stb-src
     include/${PROJECT_NAME}
 )

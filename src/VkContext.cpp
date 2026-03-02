@@ -7,7 +7,7 @@
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
-namespace flint::vulkan
+namespace flint
 {
 std::unique_ptr<VkContext> ctx{};
 
@@ -174,7 +174,7 @@ static uint8_t chooseQueueFamily() noexcept
     vkGetPhysicalDeviceQueueFamilyProperties(ctx->gpu, &queueFamilyCount, properties.data());
     for (int i = 0; i < queueFamilyCount; ++i)
     {
-        if (properties[i].queueFlags * VK_QUEUE_COMPUTE_BIT)
+        if (properties[i].queueFlags & VK_QUEUE_COMPUTE_BIT)
         {
             return i;
         }
@@ -193,15 +193,23 @@ static bool createLogicalDevice() noexcept
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.pQueuePriorities = &priority;
 
+    VkPhysicalDeviceTimelineSemaphoreFeatures features{};
+    features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+    features.timelineSemaphore = true;
+
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     createInfo.pQueueCreateInfos = &queueCreateInfo;
     createInfo.queueCreateInfoCount = 1;
     createInfo.pEnabledFeatures = nullptr;
+    createInfo.enabledExtensionCount = 1;
+    const char* extensions[] = {VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME};
+    createInfo.ppEnabledExtensionNames = extensions;
 #ifndef NDEBUG
     createInfo.enabledLayerCount = validationLayers.size();
     createInfo.ppEnabledLayerNames = validationLayers.data();
 #endif
+    createInfo.pNext = &features;
 
     if (VK_FAILED(vkCreateDevice(ctx->gpu, &createInfo, nullptr, &ctx->device)))
     {
@@ -420,7 +428,7 @@ void cleanup() noexcept
 bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags, int& memoryType) noexcept
 {
     VkPhysicalDeviceMemoryProperties memProperties{};
-    vkGetPhysicalDeviceMemoryProperties(vulkan::ctx->gpu, &memProperties);
+    vkGetPhysicalDeviceMemoryProperties(ctx->gpu, &memProperties);
 
     for (uint32_t i = 0; i < memProperties.memoryTypeCount; ++i)
     {
@@ -446,4 +454,4 @@ VkImageMemoryBarrier createImageMemoryBarrier() noexcept
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     return barrier;
 }
-} // namespace flint::vulkan
+} // namespace flint

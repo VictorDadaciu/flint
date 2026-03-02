@@ -1,13 +1,36 @@
-#include "Submission.h"
+#include "SubmissionInfo.h"
 
 #include "VkContext.h"
 
 #include <iostream>
+#include <vulkan/vulkan_core.h>
 
-namespace flint::vulkan
+namespace flint
 {
-bool Submission::begin() noexcept
+void SubmissionInfo::cleanup() noexcept
 {
+    vkDestroySemaphore(ctx->device, signal, nullptr);
+}
+
+bool SubmissionInfo::begin(VkPipelineStageFlags flags) noexcept
+{
+    stage = flags;
+
+    VkSemaphoreTypeCreateInfo timelineCreateInfo{};
+    timelineCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    timelineCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timelineCreateInfo.initialValue = 0;
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    semaphoreInfo.pNext = &timelineCreateInfo;
+
+    if (VK_FAILED(vkCreateSemaphore(ctx->device, &semaphoreInfo, nullptr, &signal)))
+    {
+        std::cout << "Failed to create vulkan semaphore\n";
+        return false;
+    }
+
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -29,31 +52,11 @@ bool Submission::begin() noexcept
         std::cout << "Failed to begin vulkan command buffer\n";
         return false;
     }
-
-    VkSemaphoreCreateInfo semaphoreInfo{};
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-    if (VK_FAILED(vkCreateSemaphore(ctx->device, &semaphoreInfo, nullptr, &semaphore)))
-    {
-        std::cout << "Failed to create vulkan semaphore\n";
-        return false;
-    }
-
-    info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    info.commandBufferCount = 1;
-    info.pCommandBuffers = &commandBuffer;
-    info.signalSemaphoreCount = 1;
-    info.pSignalSemaphores = &semaphore;
-
     return true;
 }
 
-bool Submission::end() noexcept
+bool SubmissionInfo::end() noexcept
 {
-    info.pWaitSemaphores = waitSemaphores.data();
-    info.pWaitDstStageMask = waitFlags.data();
-    info.waitSemaphoreCount = waitSemaphores.size();
-
     if (VK_FAILED(vkEndCommandBuffer(commandBuffer)))
     {
         std::cout << "Failed to end vulkan command buffer\n";
@@ -61,4 +64,4 @@ bool Submission::end() noexcept
     }
     return true;
 }
-} // namespace flint::vulkan
+} // namespace flint
