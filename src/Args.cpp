@@ -15,9 +15,9 @@ static void printHelp()
     std::cout << "\nUsage: flint --image <path> --filter <filter>\n\n";
     std::cout << "  --image <path>: <path> must be a valid path to an image file\n";
     std::cout << "  --filter <filter>: <filter> must be a valid filter from the following:\n";
-    for (const auto& filter : filterStrings)
+    for (int i = 0; i < (int)FilterType::count; ++i)
     {
-        std::cout << "      " << filter << "\n";
+        std::cout << "      " << filterTypeToString((FilterType)i) << "\n";
     }
 }
 
@@ -55,7 +55,7 @@ static FilterType parsefilterType(const char* arg) noexcept
 {
     for (int i = 0; i < (size_t)FilterType::count; ++i)
     {
-        if (strcmp(filterStrings[i], arg) == 0)
+        if (strcmp(filterTypeToString((FilterType)i), arg) == 0)
         {
             return (FilterType)i;
         }

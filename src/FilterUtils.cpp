@@ -14,6 +14,8 @@ const char* filterTypeToString(FilterType type) noexcept
         return "flip_all";
     case FilterType::sobel:
         return "sobel";
+    case FilterType::box_blur:
+        return "box_blur";
     default:
         return "";
     }

@@ -8,9 +8,9 @@ enum class FilterType
     flip_v,
     flip_all,
     sobel,
+    box_blur,
     count
 };
-static const char* filterStrings[] = {"flip_h", "flip_v", "flip_all", "sobel"};
 
 const char* filterTypeToString(FilterType) noexcept;
 } // namespace flint
