@@ -1,2 +1,15 @@
-input > what(.3, 5, hello) > output
-input > myname(why, 27, 1.45) > output
+input > box_blur() > b1
+b1 > box_blur() > b2
+b2 > box_blur() > b3
+b3 > box_blur() > b4
+b4 > box_blur() > b5
+b5 > box_blur() > b6
+b6 > box_blur() > b7
+b7 > box_blur() > b8
+b8 > box_blur() > b9
+b9 > box_blur() > b10
+b10 > box_blur() > b11
+b11 > box_blur() > b12
+b12 > box_blur() > b13
+b13 > flip_h() > b14
+b14 > sobel() > output

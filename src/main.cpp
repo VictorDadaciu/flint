@@ -1,6 +1,4 @@
 #include "FilterPipeline.h"
-#include "FilterPipelineFileParser.h"
-#include "FilterUtils.h"
 #include "StagingBuffer.h"
 #include "SubmissionStack.h"
 #include "Texture.h"
@@ -119,7 +117,9 @@ static bool applyFilters(const cli::Parser& args) noexcept
 
 static bool parse(cli::Parser& args) noexcept
 {
-    args.set_optional<std::string>("i", "image", "", "Valid path to an image");
+    // TODO remove default
+    args.set_optional<std::string>(
+        "i", "image", "/home/victordadaciu/workspace/flint/images/vault_boy.jpg", "Valid path to an image");
     args.set_optional<std::string>("f", "filter", "", "Valid filter name");
     args.run_and_exit_if_error();
 
@@ -128,59 +128,11 @@ static bool parse(cli::Parser& args) noexcept
         std::cout << "No image path provided\n";
         return false;
     }
-    if (flint::toFilterType.find(args.get<std::string>("f")) == flint::toFilterType.end())
-    {
-        std::cout << "Valid filter was not provided\n";
-        return false;
-    }
     return true;
-}
-
-static void printToken(const flint::Token& token) noexcept
-{
-    switch (token.type)
-    {
-    case flint::TokenType::ARROW:
-        std::cout << ">\n";
-        break;
-    case flint::TokenType::OPEN_PAR:
-        std::cout << "(\n";
-        break;
-    case flint::TokenType::CLOSED_PAR:
-        std::cout << ")\n";
-        break;
-    case flint::TokenType::COMMA:
-        std::cout << ",\n";
-        break;
-    case flint::TokenType::INPUT:
-        std::cout << "input\n";
-        break;
-    case flint::TokenType::OUTPUT:
-        std::cout << "output\n";
-        break;
-    case flint::TokenType::STRING:
-        std::cout << "STRING\n";
-        break;
-    case flint::TokenType::FLOAT:
-        std::cout << "FLOAT\n";
-        break;
-    case flint::TokenType::INT:
-        std::cout << "INT\n";
-        break;
-    default:
-    }
 }
 
 int main(int argc, const char* argv[])
 {
-    flint::FilterPipelineFileParser fileParser("/home/victordadaciu/workspace/flint/pipelines/test.fpl");
-    std::vector<flint::Token> tokens(fileParser.parse());
-    for (const auto& token : tokens)
-    {
-        printToken(token);
-    }
-    return 0;
-
     cli::Parser args(argc, argv);
     if (!parse(args))
     {

@@ -7,6 +7,7 @@
 #include "cmdparser.hpp"
 
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -17,6 +18,7 @@ struct FilterSlot
     std::vector<int> inputFilterSlots{};
     int outputTexture = -1;
     FilterType type = FilterType::count;
+    int height = -1;
 };
 
 class FilterInstance;
@@ -35,6 +37,10 @@ public:
     inline int uniqueTexturesCount() const noexcept { return m_uniqueTexturesCount; }
 
 private:
+    bool createSimplePipeline(const std::string&) noexcept;
+
+    bool createComplexPipeline(const std::string&) noexcept;
+
     bool applyFilter(std::vector<Texture>&, const FilterSlot&, SubmissionStack&) const noexcept;
 
     mutable std::unordered_map<FilterType, std::unique_ptr<FilterInstance>> m_filterInstances{};
