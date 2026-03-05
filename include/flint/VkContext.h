@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Args.h"
+#include "cmdparser.hpp"
 
 #include <memory>
 #include <vulkan/vulkan.h>
@@ -22,7 +22,7 @@ struct VkContext
     VkDescriptorSetLayout descriptorSetLayout{};
 };
 
-bool init(const Args&) noexcept;
+bool init(const cli::Parser&) noexcept;
 void cleanup() noexcept;
 
 bool findMemoryType(uint32_t, VkMemoryPropertyFlags, int&) noexcept;

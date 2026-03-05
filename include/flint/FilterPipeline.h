@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Args.h"
 #include "FilterInstance.h"
 #include "FilterUtils.h"
 #include "SubmissionStack.h"
 #include "Texture.h"
+#include "cmdparser.hpp"
 
 #include <memory>
 #include <unordered_map>
@@ -24,7 +24,7 @@ class FilterInstance;
 class FilterPipeline
 {
 public:
-    FilterPipeline(const Args&) noexcept;
+    FilterPipeline(const cli::Parser&) noexcept;
 
     bool record(std::vector<Texture>&, SubmissionStack&) const noexcept;
 

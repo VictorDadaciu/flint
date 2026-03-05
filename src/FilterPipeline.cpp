@@ -7,32 +7,33 @@
 #include "SubmissionStack.h"
 #include "Texture.h"
 #include "VkContext.h"
+#include "cmdparser.hpp"
 
 #include <cassert>
 #include <cstdio>
 #include <cstring>
 #include <memory>
+#include <string>
 
 namespace flint
 {
-static const char* toPath(FilterType type)
+static std::string toPath(const std::string& filterName)
 {
-    const char* toString = filterTypeToString(type);
-    char* ret = (char*)malloc(55 + strlen(toString));
-    sprintf(ret, "/home/victordadaciu/workspace/flint/compute/%s.comp.spv", toString);
-    return ret;
+    return "/home/victordadaciu/workspace/flint/compute/" + filterName + ".comp.spv";
 }
 
-FilterPipeline::FilterPipeline(const Args& args) noexcept
+FilterPipeline::FilterPipeline(const cli::Parser& args) noexcept
 {
     m_uniqueTexturesCount = 2;
 
+    std::string filterName = args.get<std::string>("f");
+
     FilterSlot slot{};
     slot.outputTexture = 1;
-    slot.type = args.filterType;
+    slot.type = toFilterType.find(filterName)->second;
     m_filterSlots.push_back(slot);
 
-    m_filterInstances[args.filterType] = std::make_unique<FilterInstance>(toPath(args.filterType));
+    m_filterInstances[slot.type] = std::make_unique<FilterInstance>(toPath(filterName));
 
     for (const auto& instance : m_filterInstances)
     {

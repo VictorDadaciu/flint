@@ -9,7 +9,7 @@
 
 namespace flint
 {
-static VkShaderModule createShaderModule(const char* path)
+static VkShaderModule createShaderModule(const std::string& path)
 {
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
@@ -45,7 +45,7 @@ void FilterInstance::cleanup() noexcept
     vkDestroyPipelineLayout(ctx->device, pipelineLayout, nullptr);
 }
 
-FilterInstance::FilterInstance(const char* path) noexcept
+FilterInstance::FilterInstance(const std::string& path) noexcept
 {
     std::vector<VkDescriptorSetLayout> descriptorSets(2, ctx->descriptorSetLayout);
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -79,7 +79,6 @@ FilterInstance::FilterInstance(const char* path) noexcept
     }
 
     vkDestroyShaderModule(ctx->device, module, nullptr);
-    free((void*)path);
     m_valid = true;
 }
 } // namespace flint

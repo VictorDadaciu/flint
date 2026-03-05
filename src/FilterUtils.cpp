@@ -1,23 +1,15 @@
 #include "FilterUtils.h"
 
+#include <string>
+#include <unordered_map>
+
 namespace flint
 {
-const char* filterTypeToString(FilterType type) noexcept
-{
-    switch (type)
-    {
-    case FilterType::flip_h:
-        return "flip_h";
-    case FilterType::flip_v:
-        return "flip_v";
-    case FilterType::flip_all:
-        return "flip_all";
-    case FilterType::sobel:
-        return "sobel";
-    case FilterType::box_blur:
-        return "box_blur";
-    default:
-        return "";
-    }
-}
+const std::unordered_map<std::string, FilterType> toFilterType = {
+    {"flip_h", FilterType::flip_h},
+    {"flip_v", FilterType::flip_v},
+    {"flip_all", FilterType::flip_all},
+    {"sobel", FilterType::sobel},
+    {"box_blur", FilterType::box_blur},
+};
 } // namespace flint

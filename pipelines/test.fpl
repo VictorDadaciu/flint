@@ -1,0 +1,2 @@
+input > what(.3, 5, hello) > output
+input > myname(why, 27, 1.45) > output

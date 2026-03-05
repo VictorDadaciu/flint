@@ -14,10 +14,10 @@ namespace flint
 {
 ImageMetadata imageMetadata{};
 
-unsigned char* loadImage(const char* path) noexcept
+unsigned char* loadImage(const std::string& path) noexcept
 {
     int channels{};
-    unsigned char* raw = stbi_load(path, &imageMetadata.width, &imageMetadata.height, &channels, STBI_rgb_alpha);
+    unsigned char* raw = stbi_load(path.c_str(), &imageMetadata.width, &imageMetadata.height, &channels, STBI_rgb_alpha);
     if (!raw)
     {
         std::cout << "Failed to load image at path " << path << ": " << stbi_failure_reason() << "\n";
@@ -31,10 +31,10 @@ unsigned char* loadImage(const char* path) noexcept
     return raw;
 }
 
-void writeImage(const char* path) noexcept
+void writeImage(const std::string& path) noexcept
 {
     unsigned char* raw = stagingBuffer.getAsRawImage();
-    stbi_write_jpg(path, imageMetadata.width, imageMetadata.height, 4, raw, 100);
+    stbi_write_jpg(path.c_str(), imageMetadata.width, imageMetadata.height, 4, raw, 100);
     stbi_image_free(raw);
 }
 

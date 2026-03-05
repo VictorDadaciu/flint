@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string>
+#include <unordered_map>
+
 namespace flint
 {
 enum class FilterType
@@ -12,5 +15,5 @@ enum class FilterType
     count
 };
 
-const char* filterTypeToString(FilterType) noexcept;
+extern const std::unordered_map<std::string, FilterType> toFilterType;
 } // namespace flint

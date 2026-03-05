@@ -1,5 +1,7 @@
 #include "VkContext.h"
 
+#include "cmdparser.hpp"
+
 #include <array>
 #include <cstring>
 #include <iostream>
@@ -252,7 +254,7 @@ static bool createCommandBuffer() noexcept
     return true;
 }
 
-static bool createDescriptorPool(const Args& args) noexcept
+static bool createDescriptorPool(const cli::Parser& args) noexcept
 {
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -287,7 +289,7 @@ static bool createDescriptorSetLayouts() noexcept
     return true;
 }
 
-static bool initContext(const Args& args)
+static bool initContext(const cli::Parser& args)
 {
     ctx = std::make_unique<VkContext>();
     if (!createInstance())
@@ -339,7 +341,7 @@ static bool initContext(const Args& args)
     return true;
 }
 
-bool init(const Args& args) noexcept
+bool init(const cli::Parser& args) noexcept
 {
     if (!initContext(args))
     {

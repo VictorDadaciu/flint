@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
@@ -19,9 +20,9 @@ extern struct ImageMetadata
     inline int size() const noexcept { return resolution() * 4; }
 } imageMetadata;
 
-unsigned char* loadImage(const char*) noexcept;
+unsigned char* loadImage(const std::string&) noexcept;
 
-void writeImage(const char*) noexcept;
+void writeImage(const std::string&) noexcept;
 
 struct Texture
 {
