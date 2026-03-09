@@ -11,24 +11,25 @@
 
 #include <cassert>
 #include <cctype>
+#include <charconv>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <unordered_map>
 #include <variant>
 #include <vector>
+#include <vulkan/vulkan_core.h>
 
 namespace flint
 {
 enum class TokenType
 {
-    INPUT,
-    OUTPUT,
     OPEN_PAR,
     CLOSED_PAR,
     ARROW,
@@ -36,7 +37,6 @@ enum class TokenType
     STRING,
     INT,
     FLOAT,
-    COMMENT,
     COUNT
 };
 
@@ -54,12 +54,12 @@ struct Token final
 {
     TokenType type = TokenType::COUNT;
 
-    std::variant<std::string, int, float> val{};
+    std::variant<std::string_view, int, float> val{};
 
     int c = -1;
 };
 
-constexpr const char* simpleTokens = "(),>#";
+constexpr const char* simpleTokens = "(),>";
 
 static bool isSimpleToken(char c) noexcept
 {
@@ -73,185 +73,9 @@ static bool isSimpleToken(char c) noexcept
     return false;
 }
 
-static void printError(const std::string& path, int line, int col, const std::string& msg) noexcept
+static void printError(const std::string_view& path, int line, int col, const std::string& msg) noexcept
 {
     std::cout << "fpl ERROR " << path << " (" << line << ", " << col << "): " << msg << "\n";
-}
-
-static bool endComplexToken(const std::string& path, int lineNumber, const std::string& value, Token& token) noexcept
-{
-    switch (token.type)
-    {
-    case TokenType::STRING:
-        token.val = value;
-        if (value == "input")
-        {
-            token.type = TokenType::INPUT;
-        }
-        else if (value == "output")
-        {
-            token.type = TokenType::OUTPUT;
-        }
-        break;
-    case TokenType::INT:
-        try
-        {
-            token.val = std::stoi(value.c_str());
-        }
-        catch (const std::invalid_argument& e)
-        {
-            printError(path, lineNumber, token.c, "Invalid syntax, could not convert token to integer " + value);
-            return false;
-        }
-        break;
-    case TokenType::FLOAT:
-        try
-        {
-            token.val = std::stof(value.c_str());
-        }
-        catch (const std::invalid_argument& e)
-        {
-            printError(path, lineNumber, token.c, "Invalid syntax, could not convert token to float " + value);
-            return false;
-        }
-        break;
-    default:
-        printError(path, lineNumber, token.c, "Invalid token parsed, this shouldn't be happening " + value);
-        return false;
-    }
-    return true;
-}
-
-static bool
-lexLine(const std::string& path, const std::string& line, int lineNumber, std::vector<Token>& tokens) noexcept
-{
-    TokenConstructor currentToken{};
-    for (int col = 0; col <= line.size(); ++col)
-    {
-        int fileCol = col + 1;
-        bool end = col == line.size();
-        char c = end ? '\0' : line[col];
-        bool letter = std::isalpha(c);
-        bool digit = std::isdigit(c);
-        bool dot = c == '.';
-        bool under = c == '_';
-        bool dash = c == '-';
-        bool simple = isSimpleToken(c);
-        bool space = std::isspace(c);
-        if (!(letter || digit || dot || under || dash || simple || space || end))
-        {
-            printError(path, lineNumber, fileCol, "Invalid character " + std::string(1, c));
-            return false;
-        }
-
-        if (simple || end || space)
-        {
-            // complex token ends here if exists
-            if (!currentToken.val.empty())
-            {
-                Token token{.type = currentToken.type, .c = currentToken.c};
-                if (!endComplexToken(path, lineNumber, currentToken.val, token))
-                {
-                    return false;
-                }
-                tokens.push_back(token);
-                currentToken = TokenConstructor{};
-            }
-            if (simple)
-            {
-                Token token{.val = std::string(1, c), .c = fileCol};
-                switch (c)
-                {
-                case '>':
-                    token.type = TokenType::ARROW;
-                    break;
-                case ',':
-                    token.type = TokenType::COMMA;
-                    break;
-                case '(':
-                    token.type = TokenType::OPEN_PAR;
-                    break;
-                case ')':
-                    token.type = TokenType::CLOSED_PAR;
-                    break;
-                case '#':
-                    token.type = TokenType::COMMENT;
-                    break;
-                default:
-                    printError(path,
-                               lineNumber,
-                               fileCol,
-                               "Invalid character parsed, this shouldn't be happening " + std::string(1, c));
-                    return false;
-                }
-                tokens.push_back(token);
-            }
-            continue;
-        }
-
-        // complex token starts
-        if (currentToken.val.empty())
-        {
-            currentToken.c = fileCol;
-            currentToken.val = std::string(1, c);
-            if (letter || under)
-            {
-                currentToken.type = TokenType::STRING;
-            }
-            else if (digit || dash)
-            {
-                currentToken.type = TokenType::INT;
-            }
-            else if (dot)
-            {
-                currentToken.type = TokenType::FLOAT;
-            }
-            continue;
-        }
-        // complex token continues
-        else
-        {
-            currentToken.val += c;
-            if (dash)
-            {
-                printError(path,
-                           lineNumber,
-                           fileCol,
-                           "Invalid syntax, dashes (-) can only be found at the beginning of a number");
-                return false;
-            }
-            else if (under && currentToken.type != TokenType::STRING)
-            {
-                printError(path, lineNumber, fileCol, "Invalid syntax, numbers cannot contain underscores (_)");
-                return false;
-            }
-            else if (letter && currentToken.type != TokenType::STRING)
-            {
-                printError(
-                    path, lineNumber, currentToken.c, "Invalid syntax, strings must begin with a letter (a-zA-Z)");
-                return false;
-            }
-            else if (dot)
-            {
-                switch (currentToken.type)
-                {
-                case TokenType::INT:
-                    currentToken.type = TokenType::FLOAT;
-                    break;
-                case TokenType::FLOAT:
-                    printError(
-                        path, lineNumber, fileCol, "Invalid syntax, numbers cannot contain more than one dot (.)");
-                    return false;
-                default:
-                }
-            }
-            continue;
-        }
-
-        printError(path, lineNumber, fileCol, "Invalid character, this shouldn't be happening " + std::string(1, c));
-        return false;
-    }
-    return true;
 }
 
 #ifndef NDEBUG
@@ -267,18 +91,12 @@ static std::string tokenTypeToStr(TokenType type) noexcept
         return "CLOSED_PAR";
     case TokenType::COMMA:
         return "COMMA";
-    case TokenType::INPUT:
-        return "INPUT";
-    case TokenType::OUTPUT:
-        return "OUTPUT";
     case TokenType::INT:
         return "INT";
     case TokenType::FLOAT:
         return "FLOAT";
     case TokenType::STRING:
         return "STRING";
-    case TokenType::COMMENT:
-        return "COMMENT";
     case TokenType::COUNT:
         return "COUNT";
     }
@@ -296,41 +114,296 @@ static void printToken(int lineNumber, const Token& token) noexcept
 }
 #endif
 
-std::vector<std::vector<Token>> lex(const std::string& path) noexcept
+struct LineInfo final
 {
-    std::vector<std::vector<Token>> ret{};
-    std::ifstream f(path);
-    if (!f)
+    std::vector<Token> inputs{};
+    Token filterType{};
+    Token output{};
+    int number{};
+
+    inline bool valid() const noexcept
     {
-        std::cout << "Parsing error: Could not open file " + path + "\n";
-        return {};
+        return !inputs.empty() &&
+               filterType.type ==
+               TokenType::STRING &&
+               output.type ==
+               TokenType::STRING &&
+               number > 0;
+    }
+};
+
+class LineParser final
+{
+public:
+    LineParser(std::string_view path, std::string_view line, int number) noexcept :
+        m_path(path), m_text(line), m_number(number)
+    {
     }
 
-    std::string line;
-    int lineNumber = 0;
-    while (std::getline(f, line))
+    bool parse(LineInfo& info) noexcept
     {
-        if (line.empty())
+        info.number = m_number;
+        if (!lex())
         {
-            ++lineNumber;
-            continue;
+            return false;
         }
-        std::vector<Token> tokens{};
-        if (!lexLine(path, line, ++lineNumber, tokens))
+        if (m_tokens.empty())
         {
-            return {};
+            return true;
         }
-        ret.push_back(tokens);
+
 #ifndef NDEBUG
-        for (const Token& token : tokens)
+        for (const auto& t : m_tokens)
         {
-            printToken(lineNumber, token);
+            printToken(info.number, t);
         }
-        std::cout << "\n";
 #endif
+
+        m_index = 0;
+        // input section
+        if (!expect({TokenType::STRING}))
+        {
+            printError(m_path,
+                       m_number,
+                       m_tokens[m_index].c,
+                       "Invalid syntax, line should start with least one input texture name");
+            return false;
+        }
+        info.inputs.push_back(m_tokens[m_index]);
+        advance();
+
+        while (expect({TokenType::COMMA, TokenType::STRING}))
+        {
+            advance();
+            info.inputs.push_back(m_tokens[m_index]);
+            advance();
+        }
+
+        if (!expect({TokenType::ARROW}))
+        {
+            printError(m_path,
+                       m_number,
+                       m_tokens[m_index].c,
+                       "Invalid syntax, arrow character (>) expected after input section");
+            return false;
+        }
+        advance();
+
+        // filter section
+        if (!expect({TokenType::STRING, TokenType::OPEN_PAR, TokenType::CLOSED_PAR, TokenType::ARROW}))
+        {
+            printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, filter call expected");
+            return false;
+        }
+        info.filterType = m_tokens[m_index];
+        advance(4);
+
+        // output section
+        if (!expect({TokenType::STRING}))
+        {
+            printError(
+                m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected at least one output texture name");
+            return false;
+        }
+        info.output = m_tokens[m_index];
+        advance();
+        if (m_index < m_tokens.size())
+        {
+            printError(m_path,
+                       m_number,
+                       m_tokens[m_index].c,
+                       "Invalid syntax, too many tokens in output section, expected only an output texture name");
+            return false;
+        }
+        return true;
     }
-    return ret;
-}
+
+private:
+    inline void advance(int by = 1) noexcept { m_index += by; }
+
+    bool lex() noexcept
+    {
+        while (m_index < m_text.size())
+        {
+            Token t{};
+            if (!processToken(t))
+            {
+                return false;
+            }
+            else if (t.type == TokenType::COUNT)
+            {
+                return true;
+            }
+            m_tokens.push_back(t);
+        }
+        return true;
+    }
+
+    bool processToken(Token& t) noexcept
+    {
+        do
+        {
+            char c = m_text[m_index++];
+            bool space = std::isspace(c);
+            bool digit = std::isdigit(c);
+            bool letter = std::isalpha(c);
+            bool simple = isSimpleToken(c);
+            bool hash = c == '#';
+            bool dash = c == '-';
+            bool under = c == '_';
+            bool dot = c == '.';
+            bool end = m_index > m_text.size();
+            if (t.c < 0)
+            {
+                if (space)
+                {
+                    continue;
+                }
+                else if (hash || end)
+                {
+                    return true;
+                }
+
+                t.c = m_index;
+                if (simple)
+                {
+                    t.val = m_text.substr(t.c - 1, 1);
+                    switch (c)
+                    {
+                    case '(':
+                        t.type = TokenType::OPEN_PAR;
+                        return true;
+                    case ')':
+                        t.type = TokenType::CLOSED_PAR;
+                        return true;
+                    case '>':
+                        t.type = TokenType::ARROW;
+                        return true;
+                    case ',':
+                        t.type = TokenType::COMMA;
+                        return true;
+                    default:
+                        printError(m_path, m_number, t.c, "Invalid token, this shouldn't be happening");
+                        return false;
+                    }
+                }
+                else if (under || letter)
+                {
+                    t.type = TokenType::STRING;
+                    continue;
+                }
+                else if (digit || dash)
+                {
+                    t.type = TokenType::INT;
+                    continue;
+                }
+                else if (dot)
+                {
+                    t.type = TokenType::FLOAT;
+                    continue;
+                }
+            }
+            else
+            {
+                bool terminating = space || simple || hash || end;
+                if (terminating)
+                {
+                    std::string_view token = m_text.substr(t.c - 1, m_index - t.c);
+                    --m_index;
+                    switch (t.type)
+                    {
+                    case TokenType::STRING:
+                        t.val = token;
+                        return true;
+                    case TokenType::INT:
+                    {
+                        int i;
+                        auto res = std::from_chars(token.data(), token.data() + token.size(), i);
+                        if (res.ec == std::errc::invalid_argument)
+                        {
+                            printError(m_path, m_number, t.c, "Invalid syntax, token couldn't be converted to integer");
+                            return false;
+                        }
+                        t.val = i;
+                        return true;
+                    }
+                    case TokenType::FLOAT:
+                    {
+                        int f;
+                        auto res = std::from_chars(token.data(), token.data() + token.size(), f);
+                        if (res.ec == std::errc::invalid_argument)
+                        {
+                            printError(
+                                m_path, m_number, t.c, "Invalid syntax, token couldn't be converted to floating-point");
+                            return false;
+                        }
+                        t.val = f;
+                        return true;
+                    }
+                    default:
+                        printError(m_path, m_number, t.c, "Invalid token, this shouldn't be happening");
+                        return false;
+                    }
+                }
+                else if (dash)
+                {
+                    printError(
+                        m_path, m_number, t.c, "Invalid syntax, dashes can only be found at the beginning of numbers");
+                    return false;
+                }
+                else if (t.type != TokenType::STRING && letter)
+                {
+                    printError(m_path, m_number, t.c, "Invalid syntax, numbers can't contain letters");
+                    return false;
+                }
+                else if (t.type != TokenType::STRING && under)
+                {
+                    printError(m_path, m_number, t.c, "Invalid syntax, numbers can't contain underscores");
+                    return false;
+                }
+                else if (dot)
+                {
+                    if (t.type == TokenType::INT)
+                    {
+                        t.type = TokenType::FLOAT;
+                        continue;
+                    }
+                    else if (t.type == TokenType::FLOAT)
+                    {
+                        printError(
+                            m_path, m_number, t.c, "Invalid syntax, numbers can't contain more than one dot character");
+                        return false;
+                    }
+                }
+            }
+        } while (m_index <= m_text.size());
+        return true;
+    }
+
+    bool expect(const std::vector<TokenType>& ts) noexcept
+    {
+        if (ts.size() > m_tokens.size() - m_index)
+        {
+            return false;
+        }
+
+        int i = m_index;
+        for (auto t : ts)
+        {
+            if (t != m_tokens[i++].type)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::string_view m_path;
+    std::string_view m_text;
+    const int m_number;
+    std::vector<Token> m_tokens{};
+    int m_index{};
+};
 
 bool FilterPipeline::createSimplePipeline(const std::string& filter) noexcept
 {
@@ -363,7 +436,8 @@ struct TexturePlaceholder final
     int tex = -1;
 };
 
-static int findTexPlaceholder(const std::string& name, const std::vector<TexturePlaceholder>& texPlaceholders) noexcept
+static int findTexPlaceholder(const std::string_view& name,
+                              const std::vector<TexturePlaceholder>& texPlaceholders) noexcept
 {
     for (int i = 0; i < texPlaceholders.size(); ++i)
     {
@@ -375,201 +449,97 @@ static int findTexPlaceholder(const std::string& name, const std::vector<Texture
     return -1;
 }
 
-template<class>
-inline constexpr bool always_false_v = false;
-
-static std::string variantToString(const std::variant<std::string, int, float>& variant) noexcept
-{
-    return std::visit(
-        [](const auto& var)
-        {
-            using T = std::decay_t<decltype(var)>;
-            if constexpr (std::is_same_v<T, std::string>)
-            {
-                return var;
-            }
-            else if constexpr (std::is_arithmetic_v<T>)
-            {
-                return std::to_string(var);
-            }
-            else
-            {
-                static_assert(always_false_v<T>, "Cannot convert type to string");
-            }
-        },
-        variant);
-}
-
 bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
 {
-    const auto& commands = lex(path);
-    if (commands.empty())
+    std::ifstream f(path);
+    if (!f)
     {
-        return false;
+        printError(path, 0, 0, "Could not open file");
+        return {};
     }
 
     std::vector<TexturePlaceholder> texPlaceholders{};
     texPlaceholders.push_back(TexturePlaceholder{.name = "input", .createdAt = -1, .tex = 0});
 
-    // TODO add lines to tokens
-    int line = 0;
-    for (const auto& cmd : commands)
+    int line{};
+    std::string text;
+    while (std::getline(f, text))
     {
-        ++line;
-        if (cmd[0].type == TokenType::COMMENT)
+        LineInfo info{};
+        {
+            LineParser parser(path, text, ++line);
+            if (!parser.parse(info))
+            {
+                return false;
+            }
+        }
+        // comment line
+        if (!info.valid())
         {
             continue;
         }
 
-        // TODO this is really ugly, wanna do it some other way
-        bool processedInput{};
-        bool processedFilterName{};
-        bool processedFilterParams{};
-        bool processedCommand{};
-        bool processedOutput{};
-
-        FilterSlot filterSlot{.height = VERY_BIG};
-        for (const auto& token : cmd)
+        FilterSlot filterSlot{};
         {
-            if (!processedInput)
+            for (const auto& in : info.inputs)
             {
-                if (token.type == TokenType::INPUT)
+                std::string_view inputName = std::get<std::string_view>(in.val);
+                if (inputName == "output")
                 {
-                    filterSlot.inputFilterSlots.push_back(0);
-                    continue;
+                    printError(path, info.number, in.c, "Invalid syntax, reserved keyword 'output' can't be an input");
+                    return false;
                 }
-                else if (token.type == TokenType::STRING)
-                {
-                    const std::string& texName = std::get<std::string>(token.val);
-                    int texIndex = findTexPlaceholder(texName, texPlaceholders);
-                    if (texIndex < 0)
-                    {
-                        printError(
-                            path,
-                            line,
-                            token.c,
-                            "Invalid syntax, '" + texName + "' requested as input, but has not been created yet");
-                        return false;
-                    }
-                    filterSlot.inputFilterSlots.push_back(texIndex);
-                    continue;
-                }
-                else if (token.type == TokenType::COMMA)
-                {
-                    continue;
-                }
-                else if (token.type == TokenType::ARROW)
-                {
-                    processedInput = true;
-                    continue;
-                }
-                else if (token.type == TokenType::OUTPUT)
+                int texIndex = findTexPlaceholder(inputName, texPlaceholders);
+                if (texIndex < 0)
                 {
                     printError(path,
                                line,
-                               token.c,
-                               "Invalid syntax, reserved keyword 'output' cannot be used as input to filter");
+                               in.c,
+                               "Invalid syntax, '" +
+                                   std::string(inputName) +
+                                   "' requested as input, but has not been created yet");
                     return false;
                 }
-                printError(path,
-                           line,
-                           token.c,
-                           "Invalid syntax, unexpected token in input section '" + variantToString(token.val) + "'");
-                return false;
-            }
-            else if (!processedFilterName)
-            {
-                std::string val = variantToString(token.val);
-                if (token.type == TokenType::STRING && filterSlot.type == FilterType::count)
-                {
-                    const auto& it = toFilterType.find(val);
-                    if (it == toFilterType.end())
-                    {
-                        printError(path, line, token.c, "Invalid syntax, invalid filter name");
-                        return false;
-                    }
-                    filterSlot.type = it->second;
-                    if (m_filterInstances.find(filterSlot.type) == m_filterInstances.end())
-                    {
-                        m_filterInstances[filterSlot.type] = std::make_unique<FilterInstance>(
-                            "/home/victordadaciu/workspace/flint/compute/" + val + ".comp.spv");
-                    }
-                    continue;
-                }
-                else if (token.type == TokenType::OPEN_PAR && filterSlot.type != FilterType::count)
-                {
-                    processedFilterName = true;
-                    continue;
-                }
-                printError(path, line, token.c, "Invalid syntax, expected filter name, found '" + val + "'");
-                return false;
-            }
-            else if (!processedFilterParams)
-            {
-                // TODO actually implement this
-                if (token.type == TokenType::CLOSED_PAR)
-                {
-                    processedFilterParams = true;
-                    continue;
-                }
-                printError(
-                    path, line, token.c, "Invalid syntax, expected ')', found '" + variantToString(token.val) + "'");
-                return false;
-            }
-            else if (!processedCommand)
-            {
-                if (token.type == TokenType::ARROW)
-                {
-                    processedCommand = true;
-                    continue;
-                }
-                printError(
-                    path, line, token.c, "Invalid syntax, expected '>', found '" + variantToString(token.val) + "'");
-                return false;
-            }
-            else if (!processedOutput)
-            {
-                if (filterSlot.outputTexture != -1)
-                {
-                    printError(
-                        path,
-                        line,
-                        token.c,
-                        "Invalid syntax, output section must contain the name of only one unique output texture");
-                    return false;
-                }
-                if (token.type == TokenType::STRING || token.type == TokenType::OUTPUT)
-                {
-                    const std::string& texName = std::get<std::string>(token.val);
-                    int texIndex = findTexPlaceholder(texName, texPlaceholders);
-                    if (texIndex != -1)
-                    {
-                        printError(path, line, token.c, "Invalid syntax, cannot overwrite previously created texture");
-                        return false;
-                    }
-                    filterSlot.outputTexture = texPlaceholders.size();
-                    texPlaceholders.push_back(TexturePlaceholder{.name = texName});
-                    processedOutput = true;
-                    continue;
-                }
-                else if (token.type == TokenType::INPUT)
-                {
-                    printError(path, line, token.c, "Invalid syntax, cannot overwrite the input texture");
-                    return false;
-                }
-                printError(
-                    path,
-                    line,
-                    token.c,
-                    "Invalid syntax, expected a new unique texture name, found '" + variantToString(token.val) + "'");
-                return false;
+                filterSlot.inputFilterSlots.push_back(texIndex);
             }
         }
 
-        if (!(processedInput && processedFilterName && processedFilterParams && processedCommand && processedOutput))
         {
-            printError(path, line, 0, "Ill-formed line, unexpected error, this shouldn't happen");
-            return false;
+            std::string filterName = std::string(std::get<std::string_view>(info.filterType.val));
+            const auto& it = toFilterType.find(filterName);
+            if (it == toFilterType.end())
+            {
+                printError(path, line, info.filterType.c, "Invalid syntax, invalid filter name");
+                return false;
+            }
+            filterSlot.type = it->second;
+            if (m_filterInstances.find(filterSlot.type) == m_filterInstances.end())
+            {
+                m_filterInstances[filterSlot.type] = std::make_unique<FilterInstance>(
+                    "/home/victordadaciu/workspace/flint/compute/" + filterName + ".comp.spv");
+            }
+        }
+
+        {
+            std::string_view outputName = std::get<std::string_view>(info.output.val);
+            if (outputName == "input")
+            {
+                printError(
+                    path, info.number, info.output.c, "Invalid syntax, reserved keyword 'input' can't be an output");
+                return false;
+            }
+            int texIndex = findTexPlaceholder(outputName, texPlaceholders);
+            if (texIndex >= 0)
+            {
+                printError(
+                    path,
+                    line,
+                    info.output.c,
+                    "Invalid syntax, cannot overwrite '" + std::string(outputName) + "', must output to a new texture");
+                return false;
+            }
+            filterSlot.outputTexture = texPlaceholders.size();
+            texPlaceholders.push_back(TexturePlaceholder{.name = std::string(outputName)});
         }
         m_filterSlots.push_back(filterSlot);
     }
@@ -602,7 +572,8 @@ bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
             printError(path,
                        0,
                        0,
-                       "Ill-formed fpl file, there must be at least one filter operation which only has the keyword "
+                       "Ill-formed fpl file, there must be at least one filter operation which only "
+                       "has the keyword "
                        "'input' as inputs");
             return false;
         }
