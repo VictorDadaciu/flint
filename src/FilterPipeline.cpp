@@ -119,6 +119,7 @@ struct LineInfo final
     std::vector<Token> inputs{};
     Token filterType{};
     Token output{};
+    int iterations = 1;
     int number{};
 
     inline bool valid() const noexcept
@@ -157,6 +158,7 @@ public:
         {
             printToken(info.number, t);
         }
+        std::cout << "\n";
 #endif
 
         m_index = 0;
@@ -190,13 +192,34 @@ public:
         advance();
 
         // filter section
-        if (!expect({TokenType::STRING, TokenType::OPEN_PAR, TokenType::CLOSED_PAR, TokenType::ARROW}))
+        if (!expect({TokenType::STRING, TokenType::OPEN_PAR, TokenType::CLOSED_PAR}))
         {
             printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, filter call expected");
             return false;
         }
         info.filterType = m_tokens[m_index];
-        advance(4);
+        advance(3);
+
+        if (expect({TokenType::INT}))
+        {
+            info.iterations = std::get<int>(m_tokens[m_index].val);
+            if (info.iterations < 1)
+            {
+                printError(m_path,
+                           m_number,
+                           m_tokens[m_index].c,
+                           "Invalid argument, iterations must be a positive non-null integer value");
+                return false;
+            }
+            advance();
+        }
+
+        if (!expect({TokenType::ARROW}))
+        {
+            printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, arrow to output section expected");
+            return false;
+        }
+        advance();
 
         // output section
         if (!expect({TokenType::STRING}))
@@ -207,6 +230,7 @@ public:
         }
         info.output = m_tokens[m_index];
         advance();
+
         if (m_index < m_tokens.size())
         {
             printError(m_path,
@@ -386,7 +410,6 @@ private:
         {
             return false;
         }
-
         int i = m_index;
         for (auto t : ts)
         {
@@ -520,27 +543,36 @@ bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
             }
         }
 
+        std::string_view outputName = std::get<std::string_view>(info.output.val);
+        if (outputName == "input")
         {
-            std::string_view outputName = std::get<std::string_view>(info.output.val);
-            if (outputName == "input")
-            {
-                printError(
-                    path, info.number, info.output.c, "Invalid syntax, reserved keyword 'input' can't be an output");
-                return false;
-            }
-            int texIndex = findTexPlaceholder(outputName, texPlaceholders);
-            if (texIndex >= 0)
-            {
-                printError(
-                    path,
-                    line,
-                    info.output.c,
-                    "Invalid syntax, cannot overwrite '" + std::string(outputName) + "', must output to a new texture");
-                return false;
-            }
-            filterSlot.outputTexture = texPlaceholders.size();
-            texPlaceholders.push_back(TexturePlaceholder{.name = std::string(outputName)});
+            printError(path, info.number, info.output.c, "Invalid syntax, reserved keyword 'input' can't be an output");
+            return false;
         }
+        int texIndex = findTexPlaceholder(outputName, texPlaceholders);
+        if (texIndex >= 0)
+        {
+            printError(
+                path,
+                line,
+                info.output.c,
+                "Invalid syntax, cannot overwrite '" + std::string(outputName) + "', must output to a new texture");
+            return false;
+        }
+        std::string outputString = std::string(outputName);
+        // TODO restrict iterations to filters that take only 1 input
+        if (info.iterations > 1)
+        {
+            for (int i = 1; i < info.iterations; ++i)
+            {
+                filterSlot.outputTexture = texPlaceholders.size();
+                texPlaceholders.push_back(TexturePlaceholder{.name = outputString + std::to_string(i)});
+                m_filterSlots.push_back(filterSlot);
+                filterSlot.inputFilterSlots[0] = filterSlot.outputTexture;
+            }
+        }
+        filterSlot.outputTexture = texPlaceholders.size();
+        texPlaceholders.push_back(TexturePlaceholder{.name = outputString});
         m_filterSlots.push_back(filterSlot);
     }
 

@@ -1,16 +1,3 @@
 input > box_blur() > b1 # this is a comment
-b1 > box_blur() > b2
-b2 > box_blur() > b3
-b3 > box_blur() > b4
-# this is also a comment
-b4 > box_blur() > b5
-b5 > box_blur() > b6
-b6 > box_blur() > b7
-b7 > box_blur() > b8
-b8 > box_blur() > b9
-b9 > box_blur() > b10
-b10 > box_blur() > b11
-b11 > box_blur() > b12
-b12 > box_blur() > b13
-b13 > flip_h() > b14
-b14 > sobel() > output
+b1 > box_blur() 10 > b2
+b2 > sobel() > output
