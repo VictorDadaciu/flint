@@ -36,6 +36,7 @@ enum class TokenType
     STRING,
     INT,
     FLOAT,
+    COMMENT,
     COUNT
 };
 
@@ -58,7 +59,7 @@ struct Token final
     int c = -1;
 };
 
-constexpr const char* simpleTokens = "(),>";
+constexpr const char* simpleTokens = "(),>#";
 
 static bool isSimpleToken(char c) noexcept
 {
@@ -173,6 +174,9 @@ lexLine(const std::string& path, const std::string& line, int lineNumber, std::v
                 case ')':
                     token.type = TokenType::CLOSED_PAR;
                     break;
+                case '#':
+                    token.type = TokenType::COMMENT;
+                    break;
                 default:
                     printError(path,
                                lineNumber,
@@ -273,6 +277,8 @@ static std::string tokenTypeToStr(TokenType type) noexcept
         return "FLOAT";
     case TokenType::STRING:
         return "STRING";
+    case TokenType::COMMENT:
+        return "COMMENT";
     case TokenType::COUNT:
         return "COUNT";
     }
@@ -410,6 +416,11 @@ bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
     for (const auto& cmd : commands)
     {
         ++line;
+        if (cmd[0].type == TokenType::COMMENT)
+        {
+            continue;
+        }
+
         // TODO this is really ugly, wanna do it some other way
         bool processedInput{};
         bool processedFilterName{};
@@ -538,6 +549,7 @@ bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
                     }
                     filterSlot.outputTexture = texPlaceholders.size();
                     texPlaceholders.push_back(TexturePlaceholder{.name = texName});
+                    processedOutput = true;
                     continue;
                 }
                 else if (token.type == TokenType::INPUT)
@@ -553,7 +565,6 @@ bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
                 return false;
             }
         }
-        processedOutput = true;
 
         if (!(processedInput && processedFilterName && processedFilterParams && processedCommand && processedOutput))
         {
@@ -600,11 +611,11 @@ bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
     // refer to filter slot not tex placeholder
     for (int i = 0; i < m_filterSlots.size(); ++i)
     {
+        texPlaceholders[m_filterSlots[i].outputTexture].createdAt = i;
         for (auto& input : m_filterSlots[i].inputFilterSlots)
         {
             input = input == 0 ? -1 : texPlaceholders[input].createdAt;
         }
-        texPlaceholders[m_filterSlots[i].outputTexture].createdAt = i;
     }
 
     // calculate minimum number of textures actually needed and their indices in the filter slots

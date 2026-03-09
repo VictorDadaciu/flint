@@ -1,7 +1,8 @@
-input > box_blur() > b1
+input > box_blur() > b1 # this is a comment
 b1 > box_blur() > b2
 b2 > box_blur() > b3
 b3 > box_blur() > b4
+# this is also a comment
 b4 > box_blur() > b5
 b5 > box_blur() > b6
 b6 > box_blur() > b7
