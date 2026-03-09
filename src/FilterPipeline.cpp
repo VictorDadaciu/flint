@@ -633,6 +633,7 @@ bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
             filterSlot.outputTexture = index;
         }
     }
+    m_uniqueTexturesCount = finalTexIndices.size();
     return true;
 }
 
