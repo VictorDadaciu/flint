@@ -4,7 +4,7 @@ layout(set = 0, binding = 0, rgba8ui) uniform readonly uimage2D inputImg;
 
 layout(set = 1, binding = 0, rgba8ui) uniform writeonly uimage2D outputImg;
 
-layout(push_constant) uniform constants
+layout(push_constant) uniform Params
 {
     int radius;
 }
