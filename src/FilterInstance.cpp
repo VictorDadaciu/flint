@@ -1,5 +1,6 @@
 #include "FilterInstance.h"
 
+#include "FilterUtils.h"
 #include "VkContext.h"
 
 #include <fstream>
@@ -45,13 +46,23 @@ void FilterInstance::cleanup() noexcept
     vkDestroyPipelineLayout(ctx->device, pipelineLayout, nullptr);
 }
 
-FilterInstance::FilterInstance(const std::string& path) noexcept
+FilterInstance::FilterInstance(FilterType type, const std::string& path) noexcept
 {
     std::vector<VkDescriptorSetLayout> descriptorSets(2, ctx->descriptorSetLayout);
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = descriptorSets.size();
     pipelineLayoutInfo.pSetLayouts = descriptorSets.data();
+
+    VkPushConstantRange range{};
+    if (int parameterCount = utils::parameterCount(type))
+    {
+        range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        range.size = parameterCount * 4; // only supports uint32_ts and floats, both have a size of 4 bytes
+
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &range;
+    }
 
     if (VK_FAILED(vkCreatePipelineLayout(ctx->device, &pipelineLayoutInfo, nullptr, &pipelineLayout)))
     {

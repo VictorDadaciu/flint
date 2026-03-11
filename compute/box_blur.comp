@@ -4,6 +4,13 @@ layout(set = 0, binding = 0, rgba8ui) uniform readonly uimage2D inputImg;
 
 layout(set = 1, binding = 0, rgba8ui) uniform writeonly uimage2D outputImg;
 
+layout(push_constant) uniform constants
+{
+    int radius;
+}
+
+params;
+
 layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 void main()
@@ -15,16 +22,16 @@ void main()
     {
         return;
     }
-    uvec3 acc = uvec3(0.0);
-    acc += imageLoad(inputImg, coords + ivec2(-1, -1)).rgb;
-    acc += imageLoad(inputImg, coords + ivec2(0, -1)).rgb;
-    acc += imageLoad(inputImg, coords + ivec2(1, -1)).rgb;
-    acc += imageLoad(inputImg, coords + ivec2(-1, 0)).rgb;
-    acc += imageLoad(inputImg, coords + ivec2(0, 0)).rgb;
-    acc += imageLoad(inputImg, coords + ivec2(1, 0)).rgb;
-    acc += imageLoad(inputImg, coords + ivec2(-1, 1)).rgb;
-    acc += imageLoad(inputImg, coords + ivec2(0, 1)).rgb;
-    acc += imageLoad(inputImg, coords + ivec2(1, 1)).rgb;
 
-    imageStore(outputImg, coords, uvec4(uvec3((round(acc / 9.0))), 255));
+    uvec3 acc = uvec3(0.0);
+    for (int i = -params.radius; i <= params.radius; ++i)
+    {
+        for (int j = -params.radius; j <= params.radius; ++j)
+        {
+            acc += imageLoad(inputImg, coords + ivec2(i, j)).rgb;
+        }
+    }
+
+    int side = params.radius * 2 + 1;
+    imageStore(outputImg, coords, uvec4(uvec3((round(acc / float(side * side)))), 255));
 }

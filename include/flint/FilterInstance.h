@@ -1,5 +1,7 @@
 #pragma once
 
+#include "FilterUtils.h"
+
 #include <string>
 #include <vulkan/vulkan_core.h>
 
@@ -8,7 +10,7 @@ namespace flint
 class FilterInstance
 {
 public:
-    FilterInstance(const std::string&) noexcept;
+    FilterInstance(FilterType, const std::string&) noexcept;
 
     void cleanup() noexcept;
 

@@ -19,6 +19,9 @@ struct FilterSlot
     int outputTexture = -1;
     FilterType type = FilterType::count;
     int height = -1;
+    int paramsSize{};
+    void* paramsData{};
+    bool firstIteration = true;
 };
 
 class FilterInstance;

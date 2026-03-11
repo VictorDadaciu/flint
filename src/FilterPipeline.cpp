@@ -12,6 +12,7 @@
 #include <cassert>
 #include <cctype>
 #include <charconv>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -34,6 +35,7 @@ enum class TokenType
     CLOSED_PAR,
     ARROW,
     COMMA,
+    COLON,
     STRING,
     INT,
     FLOAT,
@@ -59,7 +61,7 @@ struct Token final
     int c = -1;
 };
 
-constexpr const char* simpleTokens = "(),>";
+constexpr const char* simpleTokens = "(),>:";
 
 static bool isSimpleToken(char c) noexcept
 {
@@ -91,6 +93,8 @@ static std::string tokenTypeToStr(TokenType type) noexcept
         return "CLOSED_PAR";
     case TokenType::COMMA:
         return "COMMA";
+    case TokenType::COLON:
+        return "COLON";
     case TokenType::INT:
         return "INT";
     case TokenType::FLOAT:
@@ -119,6 +123,7 @@ struct LineInfo final
     std::vector<Token> inputs{};
     Token filterType{};
     Token output{};
+    std::map<std::string_view, Token> params{};
     int iterations = 1;
     int number{};
 
@@ -192,13 +197,45 @@ public:
         advance();
 
         // filter section
-        if (!expect({TokenType::STRING, TokenType::OPEN_PAR, TokenType::CLOSED_PAR}))
+        if (!expect({TokenType::STRING, TokenType::OPEN_PAR}))
         {
             printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, filter call expected");
             return false;
         }
         info.filterType = m_tokens[m_index];
-        advance(3);
+        advance(2);
+
+        while (expect({TokenType::STRING, TokenType::COLON}))
+        {
+            std::string_view paramName = std::get<std::string_view>(m_tokens[m_index].val);
+            advance(2);
+            if (expect({TokenType::INT}) || expect({TokenType::FLOAT}))
+            {
+                info.params[paramName] = m_tokens[m_index];
+            }
+            else
+            {
+                printError(m_path, m_number, m_tokens[m_index].c, "Invalid argument, expected number");
+                return false;
+            }
+            advance();
+            if (expect({TokenType::COMMA}))
+            {
+                advance();
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (!expect({TokenType::CLOSED_PAR}))
+        {
+            printError(
+                m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected ')' to end filter argument list");
+            return false;
+        }
+        advance();
 
         if (expect({TokenType::INT}))
         {
@@ -305,6 +342,9 @@ private:
                         return true;
                     case ',':
                         t.type = TokenType::COMMA;
+                        return true;
+                    case ':':
+                        t.type = TokenType::COLON;
                         return true;
                     default:
                         printError(m_path, m_number, t.c, "Invalid token, this shouldn't be happening");
@@ -444,8 +484,8 @@ bool FilterPipeline::createSimplePipeline(const std::string& filter) noexcept
     slot.type = it->second;
     m_filterSlots.push_back(slot);
 
-    m_filterInstances[slot.type] =
-        std::make_unique<FilterInstance>("/home/victordadaciu/workspace/flint/compute/" + filter + ".comp.spv");
+    m_filterInstances[slot.type] = std::make_unique<FilterInstance>(
+        slot.type, "/home/victordadaciu/workspace/flint/compute/" + filter + ".comp.spv");
     return true;
 }
 
@@ -539,7 +579,27 @@ bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
             if (m_filterInstances.find(filterSlot.type) == m_filterInstances.end())
             {
                 m_filterInstances[filterSlot.type] = std::make_unique<FilterInstance>(
-                    "/home/victordadaciu/workspace/flint/compute/" + filterName + ".comp.spv");
+                    filterSlot.type, "/home/victordadaciu/workspace/flint/compute/" + filterName + ".comp.spv");
+            }
+            auto paramsMap = utils::parameterMap(filterSlot.type);
+            for (const auto& token : info.params)
+            {
+                if (token.second.type == TokenType::FLOAT)
+                {
+                    paramsMap[std::string(token.first)] = std::get<float>(token.second.val);
+                }
+                else
+                {
+                    paramsMap[std::string(token.first)] = static_cast<uint32_t>(std::get<int>(token.second.val));
+                }
+            }
+            if (!utils::validateMap(filterSlot.type, paramsMap))
+            {
+                return false;
+            }
+            if (!paramsMap.empty())
+            {
+                utils::mapAsData(filterSlot.type, paramsMap, filterSlot.paramsSize, &filterSlot.paramsData);
             }
         }
 
@@ -569,6 +629,7 @@ bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
                 texPlaceholders.push_back(TexturePlaceholder{.name = outputString + std::to_string(i)});
                 m_filterSlots.push_back(filterSlot);
                 filterSlot.inputFilterSlots[0] = filterSlot.outputTexture;
+                filterSlot.firstIteration = false;
             }
         }
         filterSlot.outputTexture = texPlaceholders.size();
@@ -686,6 +747,13 @@ void FilterPipeline::cleanup() noexcept
     for (auto& instance : m_filterInstances)
     {
         instance.second->cleanup();
+    }
+    for (auto& slot : m_filterSlots)
+    {
+        if (slot.firstIteration && slot.paramsData)
+        {
+            delete[] static_cast<uint32_t*>(slot.paramsData);
+        }
     }
 }
 
@@ -851,6 +919,16 @@ bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
                             nullptr);
     submissions[compute].prereqs.push_back(texes[filterSlot.outputTexture].lastSubmissionIndex);
     texes[filterSlot.outputTexture].lastSubmissionIndex = compute;
+
+    if (utils::parameterCount(filterSlot.type))
+    {
+        vkCmdPushConstants(submissions[compute].commandBuffer,
+                           filter->pipelineLayout,
+                           VK_SHADER_STAGE_COMPUTE_BIT,
+                           0,
+                           filterSlot.paramsSize,
+                           filterSlot.paramsData);
+    }
 
     vkCmdDispatch(submissions[compute].commandBuffer, imageMetadata.groupX, imageMetadata.groupY, 1);
 
