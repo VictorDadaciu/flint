@@ -3,6 +3,7 @@
 #include "FilterUtils.h"
 #include "VkContext.h"
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <vector>
@@ -10,7 +11,7 @@
 
 namespace flint
 {
-static VkShaderModule createShaderModule(const std::string& path)
+static VkShaderModule createShaderModule(const std::filesystem::path& path)
 {
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
@@ -42,11 +43,13 @@ static VkShaderModule createShaderModule(const std::string& path)
 
 void FilterInstance::cleanup() noexcept
 {
+    m_valid = false;
     vkDestroyPipeline(ctx->device, pipeline, nullptr);
     vkDestroyPipelineLayout(ctx->device, pipelineLayout, nullptr);
 }
 
-FilterInstance::FilterInstance(FilterType type, const std::string& path) noexcept
+// TODO better error handling this is a mess
+FilterInstance::FilterInstance(FilterType type) noexcept
 {
     std::vector<VkDescriptorSetLayout> descriptorSets(2, ctx->descriptorSetLayout);
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -70,7 +73,16 @@ FilterInstance::FilterInstance(FilterType type, const std::string& path) noexcep
         return;
     }
 
-    VkShaderModule module = createShaderModule(path);
+    const auto& it = toFilterName.find(type);
+    if (it == toFilterName.end())
+    {
+        std::cout << "Invalid filter name requested\n";
+        cleanup();
+        return;
+    }
+
+    VkShaderModule module =
+        createShaderModule("/home/victordadaciu/workspace/flint/compute/" + it->second + ".comp.spv");
     VkPipelineShaderStageCreateInfo shaderInfo{};
     shaderInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     shaderInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;

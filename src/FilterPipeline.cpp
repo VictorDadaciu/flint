@@ -11,732 +11,34 @@
 
 #include <cassert>
 #include <cctype>
-#include <charconv>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
-#include <iostream>
 #include <memory>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <type_traits>
-#include <unordered_map>
-#include <variant>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
 namespace flint
 {
-enum class TokenType
+FilterPipeline::FilterPipeline(const cli::Parser& args) noexcept : m_layout(args)
 {
-    OPEN_PAR,
-    CLOSED_PAR,
-    ARROW,
-    COMMA,
-    COLON,
-    STRING,
-    INT,
-    FLOAT,
-    COUNT
-};
-
-struct TokenConstructor final
-{
-    TokenType type = TokenType::COUNT;
-
-    std::string val{};
-
-    int c = -1;
-};
-
-struct Token final
-
-{
-    TokenType type = TokenType::COUNT;
-
-    std::variant<std::string_view, int, float> val{};
-
-    int c = -1;
-};
-
-constexpr const char* simpleTokens = "(),>:";
-
-static bool isSimpleToken(char c) noexcept
-{
-    for (int i = 0; i < strlen(simpleTokens); ++i)
+    if (!m_layout.valid())
     {
-        if (c == simpleTokens[i])
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-static void printError(const std::string_view& path, int line, int col, const std::string& msg) noexcept
-{
-    std::cout << "fpl ERROR " << path << " (" << line << ", " << col << "): " << msg << "\n";
-}
-
-#ifndef NDEBUG
-static std::string tokenTypeToStr(TokenType type) noexcept
-{
-    switch (type)
-    {
-    case TokenType::ARROW:
-        return "ARROW";
-    case TokenType::OPEN_PAR:
-        return "OPEN_PAR";
-    case TokenType::CLOSED_PAR:
-        return "CLOSED_PAR";
-    case TokenType::COMMA:
-        return "COMMA";
-    case TokenType::COLON:
-        return "COLON";
-    case TokenType::INT:
-        return "INT";
-    case TokenType::FLOAT:
-        return "FLOAT";
-    case TokenType::STRING:
-        return "STRING";
-    case TokenType::COUNT:
-        return "COUNT";
-    }
-}
-
-static void printToken(int lineNumber, const Token& token) noexcept
-{
-    std::cout << "{ " << "(" << lineNumber << ", " << token.c << "), " << tokenTypeToStr(token.type) << ", ";
-    std::visit(
-        [](const auto& value)
-        {
-            std::cout << "'" << value << "' } \n";
-        },
-        token.val);
-}
-#endif
-
-struct LineInfo final
-{
-    std::vector<Token> inputs{};
-    Token filterType{};
-    Token output{};
-    std::map<std::string_view, Token> params{};
-    int iterations = 1;
-    int number{};
-
-    inline bool valid() const noexcept
-    {
-        return !inputs.empty() &&
-               filterType.type ==
-               TokenType::STRING &&
-               output.type ==
-               TokenType::STRING &&
-               number > 0;
-    }
-};
-
-class LineParser final
-{
-public:
-    LineParser(std::string_view path, std::string_view line, int number) noexcept :
-        m_path(path), m_text(line), m_number(number)
-    {
+        cleanup();
+        return;
     }
 
-    bool parse(LineInfo& info) noexcept
+    for (const auto& slot : m_layout.slots)
     {
-        info.number = m_number;
-        if (!lex())
+        const auto& it = m_filterInstances.find(slot.type);
+        if (it == m_filterInstances.end())
         {
-            return false;
-        }
-        if (m_tokens.empty())
-        {
-            return true;
-        }
-
-#ifndef NDEBUG
-        for (const auto& t : m_tokens)
-        {
-            printToken(info.number, t);
-        }
-        std::cout << "\n";
-#endif
-
-        m_index = 0;
-        // input section
-        if (!expect({TokenType::STRING}))
-        {
-            printError(m_path,
-                       m_number,
-                       m_tokens[m_index].c,
-                       "Invalid syntax, line should start with least one input texture name");
-            return false;
-        }
-        info.inputs.push_back(m_tokens[m_index]);
-        advance();
-
-        while (expect({TokenType::COMMA, TokenType::STRING}))
-        {
-            advance();
-            info.inputs.push_back(m_tokens[m_index]);
-            advance();
-        }
-
-        if (!expect({TokenType::ARROW}))
-        {
-            printError(m_path,
-                       m_number,
-                       m_tokens[m_index].c,
-                       "Invalid syntax, arrow character (>) expected after input section");
-            return false;
-        }
-        advance();
-
-        // filter section
-        if (!expect({TokenType::STRING, TokenType::OPEN_PAR}))
-        {
-            printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, filter call expected");
-            return false;
-        }
-        info.filterType = m_tokens[m_index];
-        advance(2);
-
-        while (expect({TokenType::STRING, TokenType::COLON}))
-        {
-            std::string_view paramName = std::get<std::string_view>(m_tokens[m_index].val);
-            advance(2);
-            if (expect({TokenType::INT}) || expect({TokenType::FLOAT}))
+            m_filterInstances[slot.type] = std::make_unique<FilterInstance>(slot.type);
+            if (!m_filterInstances[slot.type]->valid())
             {
-                info.params[paramName] = m_tokens[m_index];
+                cleanup();
+                return;
             }
-            else
-            {
-                printError(m_path, m_number, m_tokens[m_index].c, "Invalid argument, expected number");
-                return false;
-            }
-            advance();
-            if (expect({TokenType::COMMA}))
-            {
-                advance();
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        if (!expect({TokenType::CLOSED_PAR}))
-        {
-            printError(
-                m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected ')' to end filter argument list");
-            return false;
-        }
-        advance();
-
-        if (expect({TokenType::INT}))
-        {
-            info.iterations = std::get<int>(m_tokens[m_index].val);
-            if (info.iterations < 1)
-            {
-                printError(m_path,
-                           m_number,
-                           m_tokens[m_index].c,
-                           "Invalid argument, iterations must be a positive non-null integer value");
-                return false;
-            }
-            advance();
-        }
-
-        if (!expect({TokenType::ARROW}))
-        {
-            printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, arrow to output section expected");
-            return false;
-        }
-        advance();
-
-        // output section
-        if (!expect({TokenType::STRING}))
-        {
-            printError(
-                m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected at least one output texture name");
-            return false;
-        }
-        info.output = m_tokens[m_index];
-        advance();
-
-        if (m_index < m_tokens.size())
-        {
-            printError(m_path,
-                       m_number,
-                       m_tokens[m_index].c,
-                       "Invalid syntax, too many tokens in output section, expected only an output texture name");
-            return false;
-        }
-        return true;
-    }
-
-private:
-    inline void advance(int by = 1) noexcept { m_index += by; }
-
-    bool lex() noexcept
-    {
-        while (m_index < m_text.size())
-        {
-            Token t{};
-            if (!processToken(t))
-            {
-                return false;
-            }
-            else if (t.type == TokenType::COUNT)
-            {
-                return true;
-            }
-            m_tokens.push_back(t);
-        }
-        return true;
-    }
-
-    bool processToken(Token& t) noexcept
-    {
-        do
-        {
-            char c = m_text[m_index++];
-            bool space = std::isspace(c);
-            bool digit = std::isdigit(c);
-            bool letter = std::isalpha(c);
-            bool simple = isSimpleToken(c);
-            bool hash = c == '#';
-            bool dash = c == '-';
-            bool under = c == '_';
-            bool dot = c == '.';
-            bool end = m_index > m_text.size();
-            if (t.c < 0)
-            {
-                if (space)
-                {
-                    continue;
-                }
-                else if (hash || end)
-                {
-                    return true;
-                }
-
-                t.c = m_index;
-                if (simple)
-                {
-                    t.val = m_text.substr(t.c - 1, 1);
-                    switch (c)
-                    {
-                    case '(':
-                        t.type = TokenType::OPEN_PAR;
-                        return true;
-                    case ')':
-                        t.type = TokenType::CLOSED_PAR;
-                        return true;
-                    case '>':
-                        t.type = TokenType::ARROW;
-                        return true;
-                    case ',':
-                        t.type = TokenType::COMMA;
-                        return true;
-                    case ':':
-                        t.type = TokenType::COLON;
-                        return true;
-                    default:
-                        printError(m_path, m_number, t.c, "Invalid token, this shouldn't be happening");
-                        return false;
-                    }
-                }
-                else if (under || letter)
-                {
-                    t.type = TokenType::STRING;
-                    continue;
-                }
-                else if (digit || dash)
-                {
-                    t.type = TokenType::INT;
-                    continue;
-                }
-                else if (dot)
-                {
-                    t.type = TokenType::FLOAT;
-                    continue;
-                }
-            }
-            else
-            {
-                bool terminating = space || simple || hash || end;
-                if (terminating)
-                {
-                    std::string_view token = m_text.substr(t.c - 1, m_index - t.c);
-                    --m_index;
-                    switch (t.type)
-                    {
-                    case TokenType::STRING:
-                        t.val = token;
-                        return true;
-                    case TokenType::INT:
-                    {
-                        int i;
-                        auto res = std::from_chars(token.data(), token.data() + token.size(), i);
-                        if (res.ec == std::errc::invalid_argument)
-                        {
-                            printError(m_path, m_number, t.c, "Invalid syntax, token couldn't be converted to integer");
-                            return false;
-                        }
-                        t.val = i;
-                        return true;
-                    }
-                    case TokenType::FLOAT:
-                    {
-                        int f;
-                        auto res = std::from_chars(token.data(), token.data() + token.size(), f);
-                        if (res.ec == std::errc::invalid_argument)
-                        {
-                            printError(
-                                m_path, m_number, t.c, "Invalid syntax, token couldn't be converted to floating-point");
-                            return false;
-                        }
-                        t.val = f;
-                        return true;
-                    }
-                    default:
-                        printError(m_path, m_number, t.c, "Invalid token, this shouldn't be happening");
-                        return false;
-                    }
-                }
-                else if (dash)
-                {
-                    printError(
-                        m_path, m_number, t.c, "Invalid syntax, dashes can only be found at the beginning of numbers");
-                    return false;
-                }
-                else if (t.type != TokenType::STRING && letter)
-                {
-                    printError(m_path, m_number, t.c, "Invalid syntax, numbers can't contain letters");
-                    return false;
-                }
-                else if (t.type != TokenType::STRING && under)
-                {
-                    printError(m_path, m_number, t.c, "Invalid syntax, numbers can't contain underscores");
-                    return false;
-                }
-                else if (dot)
-                {
-                    if (t.type == TokenType::INT)
-                    {
-                        t.type = TokenType::FLOAT;
-                        continue;
-                    }
-                    else if (t.type == TokenType::FLOAT)
-                    {
-                        printError(
-                            m_path, m_number, t.c, "Invalid syntax, numbers can't contain more than one dot character");
-                        return false;
-                    }
-                }
-            }
-        } while (m_index <= m_text.size());
-        return true;
-    }
-
-    bool expect(const std::vector<TokenType>& ts) noexcept
-    {
-        if (ts.size() > m_tokens.size() - m_index)
-        {
-            return false;
-        }
-        int i = m_index;
-        for (auto t : ts)
-        {
-            if (t != m_tokens[i++].type)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    std::string_view m_path;
-    std::string_view m_text;
-    const int m_number;
-    std::vector<Token> m_tokens{};
-    int m_index{};
-};
-
-bool FilterPipeline::createSimplePipeline(const std::string& filter) noexcept
-{
-    m_uniqueTexturesCount = 2;
-
-    FilterSlot slot{};
-    slot.inputFilterSlots = {-1};
-    slot.outputTexture = 1;
-    const auto& it = toFilterType.find(filter);
-    if (it == toFilterType.end())
-    {
-        std::cout << "Invalid filter type requested\n";
-        return false;
-    }
-    slot.type = it->second;
-    m_filterSlots.push_back(slot);
-
-    m_filterInstances[slot.type] = std::make_unique<FilterInstance>(
-        slot.type, "/home/victordadaciu/workspace/flint/compute/" + filter + ".comp.spv");
-    return true;
-}
-
-constexpr int VERY_BIG = 1000000;
-
-struct TexturePlaceholder final
-{
-    std::string name{};
-    int createdAt = VERY_BIG;
-    int lastUsedAt = -1;
-    int tex = -1;
-};
-
-static int findTexPlaceholder(const std::string_view& name,
-                              const std::vector<TexturePlaceholder>& texPlaceholders) noexcept
-{
-    for (int i = 0; i < texPlaceholders.size(); ++i)
-    {
-        if (name == texPlaceholders[i].name)
-        {
-            return i;
-        }
-    }
-    return -1;
-}
-
-bool FilterPipeline::createComplexPipeline(const std::string& path) noexcept
-{
-    std::ifstream f(path);
-    if (!f)
-    {
-        printError(path, 0, 0, "Could not open file");
-        return {};
-    }
-
-    std::vector<TexturePlaceholder> texPlaceholders{};
-    texPlaceholders.push_back(TexturePlaceholder{.name = "input", .createdAt = -1, .tex = 0});
-
-    int line{};
-    std::string text;
-    while (std::getline(f, text))
-    {
-        LineInfo info{};
-        {
-            LineParser parser(path, text, ++line);
-            if (!parser.parse(info))
-            {
-                return false;
-            }
-        }
-        // comment line
-        if (!info.valid())
-        {
-            continue;
-        }
-
-        FilterSlot filterSlot{};
-        {
-            for (const auto& in : info.inputs)
-            {
-                std::string_view inputName = std::get<std::string_view>(in.val);
-                if (inputName == "output")
-                {
-                    printError(path, info.number, in.c, "Invalid syntax, reserved keyword 'output' can't be an input");
-                    return false;
-                }
-                int texIndex = findTexPlaceholder(inputName, texPlaceholders);
-                if (texIndex < 0)
-                {
-                    printError(path,
-                               line,
-                               in.c,
-                               "Invalid syntax, '" +
-                                   std::string(inputName) +
-                                   "' requested as input, but has not been created yet");
-                    return false;
-                }
-                filterSlot.inputFilterSlots.push_back(texIndex);
-            }
-        }
-
-        {
-            std::string filterName = std::string(std::get<std::string_view>(info.filterType.val));
-            const auto& it = toFilterType.find(filterName);
-            if (it == toFilterType.end())
-            {
-                printError(path, line, info.filterType.c, "Invalid syntax, invalid filter name");
-                return false;
-            }
-            filterSlot.type = it->second;
-            if (m_filterInstances.find(filterSlot.type) == m_filterInstances.end())
-            {
-                m_filterInstances[filterSlot.type] = std::make_unique<FilterInstance>(
-                    filterSlot.type, "/home/victordadaciu/workspace/flint/compute/" + filterName + ".comp.spv");
-            }
-            auto paramsMap = utils::parameterMap(filterSlot.type);
-            for (const auto& token : info.params)
-            {
-                if (token.second.type == TokenType::FLOAT)
-                {
-                    paramsMap[std::string(token.first)] = std::get<float>(token.second.val);
-                }
-                else
-                {
-                    paramsMap[std::string(token.first)] = static_cast<uint32_t>(std::get<int>(token.second.val));
-                }
-            }
-            if (!utils::validateMap(filterSlot.type, paramsMap))
-            {
-                return false;
-            }
-            if (!paramsMap.empty())
-            {
-                utils::mapAsData(filterSlot.type, paramsMap, filterSlot.paramsSize, &filterSlot.paramsData);
-            }
-        }
-
-        std::string_view outputName = std::get<std::string_view>(info.output.val);
-        if (outputName == "input")
-        {
-            printError(path, info.number, info.output.c, "Invalid syntax, reserved keyword 'input' can't be an output");
-            return false;
-        }
-        int texIndex = findTexPlaceholder(outputName, texPlaceholders);
-        if (texIndex >= 0)
-        {
-            printError(
-                path,
-                line,
-                info.output.c,
-                "Invalid syntax, cannot overwrite '" + std::string(outputName) + "', must output to a new texture");
-            return false;
-        }
-        std::string outputString = std::string(outputName);
-        // TODO restrict iterations to filters that take only 1 input
-        if (info.iterations > 1)
-        {
-            for (int i = 1; i < info.iterations; ++i)
-            {
-                filterSlot.outputTexture = texPlaceholders.size();
-                texPlaceholders.push_back(TexturePlaceholder{.name = outputString + std::to_string(i)});
-                m_filterSlots.push_back(filterSlot);
-                filterSlot.inputFilterSlots[0] = filterSlot.outputTexture;
-                filterSlot.firstIteration = false;
-            }
-        }
-        filterSlot.outputTexture = texPlaceholders.size();
-        texPlaceholders.push_back(TexturePlaceholder{.name = outputString});
-        m_filterSlots.push_back(filterSlot);
-    }
-
-    // find heights and sort by them
-    int sweep = 0;
-    while (sweep < m_filterSlots.size())
-    {
-        for (int i = sweep; i < m_filterSlots.size(); ++i)
-        {
-            int height = -1;
-            for (const int& input : m_filterSlots[i].inputFilterSlots)
-            {
-                height = std::max(height, texPlaceholders[input].createdAt + 1);
-            }
-            if (height < VERY_BIG)
-            {
-                std::swap(m_filterSlots[sweep], m_filterSlots[i]);
-                m_filterSlots[sweep].height = height;
-                texPlaceholders[m_filterSlots[sweep].outputTexture].createdAt = height;
-                for (const auto& input : m_filterSlots[sweep].inputFilterSlots)
-                {
-                    texPlaceholders[input].lastUsedAt = height;
-                }
-                ++sweep;
-            }
-        }
-        if (sweep == 0)
-        {
-            printError(path,
-                       0,
-                       0,
-                       "Ill-formed fpl file, there must be at least one filter operation which only "
-                       "has the keyword "
-                       "'input' as inputs");
-            return false;
-        }
-    }
-
-    // refer to filter slot not tex placeholder
-    for (int i = 0; i < m_filterSlots.size(); ++i)
-    {
-        texPlaceholders[m_filterSlots[i].outputTexture].createdAt = i;
-        for (auto& input : m_filterSlots[i].inputFilterSlots)
-        {
-            input = input == 0 ? -1 : texPlaceholders[input].createdAt;
-        }
-    }
-
-    // calculate minimum number of textures actually needed and their indices in the filter slots
-    std::vector<int> finalTexIndices{0};
-    for (auto& filterSlot : m_filterSlots)
-    {
-        bool found = false;
-        for (int i = 0; i < finalTexIndices.size(); ++i)
-        {
-            int index = finalTexIndices[i];
-            if (texPlaceholders[index].lastUsedAt < filterSlot.height)
-            {
-                texPlaceholders[index].lastUsedAt = filterSlot.height;
-                finalTexIndices[i] = filterSlot.outputTexture;
-                texPlaceholders[filterSlot.outputTexture].tex = texPlaceholders[index].tex;
-                filterSlot.outputTexture = texPlaceholders[index].tex;
-                found = true;
-                break;
-            }
-        }
-        if (!found)
-        {
-            int index = finalTexIndices.size();
-            texPlaceholders[filterSlot.outputTexture].tex = index;
-            finalTexIndices.push_back(filterSlot.outputTexture);
-            filterSlot.outputTexture = index;
-        }
-    }
-    m_uniqueTexturesCount = finalTexIndices.size();
-    return true;
-}
-
-FilterPipeline::FilterPipeline(const cli::Parser& args) noexcept
-{
-    std::string filter = args.get<std::string>("f");
-    if (filter.ends_with(".fpl"))
-    {
-        if (!createComplexPipeline(filter))
-        {
-            m_valid = false;
-            return;
-        }
-    }
-    else
-    {
-        if (!createSimplePipeline(filter))
-        {
-            m_valid = false;
-            return;
-        }
-    }
-    for (const auto& instance : m_filterInstances)
-    {
-        if (!instance.second->valid())
-        {
-            m_valid = false;
-            return;
         }
     }
     m_valid = true;
@@ -744,15 +46,16 @@ FilterPipeline::FilterPipeline(const cli::Parser& args) noexcept
 
 void FilterPipeline::cleanup() noexcept
 {
+    m_valid = false;
     for (auto& instance : m_filterInstances)
     {
         instance.second->cleanup();
     }
-    for (auto& slot : m_filterSlots)
+    for (auto& slot : m_layout.slots)
     {
-        if (slot.firstIteration && slot.paramsData)
+        if (slot.firstIteration && slot.params.data)
         {
-            delete[] static_cast<uint32_t*>(slot.paramsData);
+            delete[] static_cast<uint32_t*>(slot.params.data);
         }
     }
 }
@@ -882,7 +185,7 @@ static bool transitionToComputeFromUndefined(Texture& tex, SubmissionStack& subm
 }
 
 bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
-                                 const FilterSlot& filterSlot,
+                                 const fpl::FilterSlot& filterSlot,
                                  SubmissionStack& submissions) const noexcept
 {
     int compute = submissions.get();
@@ -894,10 +197,10 @@ bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
 
     vkCmdBindPipeline(submissions[compute].commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, filter->pipeline);
 
-    for (int i = 0; i < filterSlot.inputFilterSlots.size(); ++i)
+    for (int i = 0; i < filterSlot.inputs.size(); ++i)
     {
-        int index = filterSlot.inputFilterSlots[i];
-        Texture& tex = index == -1 ? texes[0] : texes[m_filterSlots[index].outputTexture];
+        int index = filterSlot.inputs[i];
+        Texture& tex = index == -1 ? texes[0] : texes[m_layout.slots[index].outputTexture];
         vkCmdBindDescriptorSets(submissions[compute].commandBuffer,
                                 VK_PIPELINE_BIND_POINT_COMPUTE,
                                 filter->pipelineLayout,
@@ -912,7 +215,7 @@ bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
     vkCmdBindDescriptorSets(submissions[compute].commandBuffer,
                             VK_PIPELINE_BIND_POINT_COMPUTE,
                             filter->pipelineLayout,
-                            filterSlot.inputFilterSlots.size(),
+                            filterSlot.inputs.size(),
                             1,
                             &texes[filterSlot.outputTexture].descriptorSet,
                             0,
@@ -926,8 +229,8 @@ bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
                            filter->pipelineLayout,
                            VK_SHADER_STAGE_COMPUTE_BIT,
                            0,
-                           filterSlot.paramsSize,
-                           filterSlot.paramsData);
+                           filterSlot.params.size,
+                           filterSlot.params.data);
     }
 
     vkCmdDispatch(submissions[compute].commandBuffer, imageMetadata.groupX, imageMetadata.groupY, 1);
@@ -996,7 +299,7 @@ static bool copyImageToBuffer(Texture& tex, SubmissionStack& submissions) noexce
 
 bool FilterPipeline::record(std::vector<Texture>& texes, SubmissionStack& submissions) const noexcept
 {
-    assert(texes.size() == m_uniqueTexturesCount);
+    assert(texes.size() == m_layout.texCount);
     if (!(transitionToTransfer(texes[0], submissions) &&
           copyImage(texes[0], submissions) &&
           transitionToComputeFromTransfer(texes[0], submissions)))
@@ -1012,15 +315,15 @@ bool FilterPipeline::record(std::vector<Texture>& texes, SubmissionStack& submis
         }
     }
 
-    for (int i = 0; i < m_filterSlots.size(); ++i)
+    for (int i = 0; i < m_layout.slots.size(); ++i)
     {
-        if (!applyFilter(texes, m_filterSlots[i], submissions))
+        if (!applyFilter(texes, m_layout.slots[i], submissions))
         {
             return false;
         }
     }
 
-    Texture& tex = texes[m_filterSlots[m_filterSlots.size() - 1].outputTexture];
+    Texture& tex = texes[m_layout.slots.back().outputTexture];
     return transitionToTransferFromCompute(tex, submissions) && copyImageToBuffer(tex, submissions);
 }
 } // namespace flint

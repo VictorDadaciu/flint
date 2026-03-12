@@ -22,12 +22,11 @@ static bool applyFilters(const cli::Parser& args) noexcept
         return false;
     }
     unsigned char* raw = flint::loadImage(args.get<std::string>("i"));
-    if (!raw)
+    if (!raw || !flint::stagingBuffer.createFromRawImage(raw))
     {
         return false;
     }
-    flint::stagingBuffer.createFromRawImage(raw);
-    std::vector<flint::Texture> texes(pipeline.uniqueTexturesCount());
+    std::vector<flint::Texture> texes(pipeline.texCount());
     for (const auto& tex : texes)
     {
         if (!tex.valid())
@@ -115,7 +114,7 @@ static bool applyFilters(const cli::Parser& args) noexcept
     return true;
 }
 
-static bool parse(cli::Parser& args) noexcept
+static bool parseArgs(cli::Parser& args) noexcept
 {
     // TODO remove default
     args.set_optional<std::string>(
@@ -134,7 +133,7 @@ static bool parse(cli::Parser& args) noexcept
 int main(int argc, const char* argv[])
 {
     cli::Parser args(argc, argv);
-    if (!parse(args))
+    if (!parseArgs(args))
     {
         std::cout << "\nflint failed to parse arguments\n";
         return 1;

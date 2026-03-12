@@ -5,7 +5,9 @@
 #include "SubmissionStack.h"
 #include "Texture.h"
 #include "cmdparser.hpp"
+#include "fpl/PipelineLayout.h"
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -13,17 +15,6 @@
 
 namespace flint
 {
-struct FilterSlot
-{
-    std::vector<int> inputFilterSlots{};
-    int outputTexture = -1;
-    FilterType type = FilterType::count;
-    int height = -1;
-    int paramsSize{};
-    void* paramsData{};
-    bool firstIteration = true;
-};
-
 class FilterInstance;
 
 class FilterPipeline
@@ -37,18 +28,17 @@ public:
 
     inline bool valid() const noexcept { return m_valid; }
 
-    inline int uniqueTexturesCount() const noexcept { return m_uniqueTexturesCount; }
+    inline int texCount() const noexcept { return m_layout.texCount; }
 
 private:
     bool createSimplePipeline(const std::string&) noexcept;
 
-    bool createComplexPipeline(const std::string&) noexcept;
+    bool createComplexPipeline(const std::filesystem::path&) noexcept;
 
-    bool applyFilter(std::vector<Texture>&, const FilterSlot&, SubmissionStack&) const noexcept;
+    bool applyFilter(std::vector<Texture>&, const fpl::FilterSlot&, SubmissionStack&) const noexcept;
 
     mutable std::unordered_map<FilterType, std::unique_ptr<FilterInstance>> m_filterInstances{};
-    std::vector<FilterSlot> m_filterSlots{};
-    int m_uniqueTexturesCount{};
+    fpl::PipelineLayout m_layout;
     bool m_valid{};
 };
 } // namespace flint

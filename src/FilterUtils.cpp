@@ -15,6 +15,13 @@ const std::unordered_map<std::string, FilterType> toFilterType = {
     {"sobel", FilterType::sobel},
     {"box_blur", FilterType::box_blur},
 };
+const std::unordered_map<FilterType, std::string> toFilterName = {
+    {FilterType::flip_h, "flip_h"},
+    {FilterType::flip_v, "flip_v"},
+    {FilterType::flip_all, "flip_all"},
+    {FilterType::sobel, "sobel"},
+    {FilterType::box_blur, "box_blur"},
+};
 
 namespace utils
 {
@@ -85,7 +92,7 @@ namespace utils
         return parameterMap(type).size();
     }
 
-    bool mapAsData(FilterType type, const ParameterMap& map, int& size, void** data) noexcept
+    bool mapAsData(FilterType type, const ParameterMap& map, size_t& size, void** data) noexcept
     {
         if (!validateMap(type, map))
         {
