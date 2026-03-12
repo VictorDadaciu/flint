@@ -25,6 +25,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cmdparser)
 
+# nlohmannjson
+FetchContent_Declare(
+    nlohmannjson
+    GIT_REPOSITORY https://github.com/nlohmann/json
+)
+FetchContent_MakeAvailable(nlohmannjson)
+
 file(GLOB_RECURSE FLINT_SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp ${PROJECT_SOURCE_DIR}/include/${PROJECT_NAME}/*.h)
 
 add_executable(${PROJECT_NAME} ${FLINT_SOURCES})
@@ -35,6 +42,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${Vulkan_INCLUDE_DIRS}
     ${FETCHCONTENT_BASE_DIR}/stb-src
     ${FETCHCONTENT_BASE_DIR}/cmdparser-src
+    ${FETCHCONTENT_BASE_DIR}/nlohmannjson-src
     include/${PROJECT_NAME}
 )
 

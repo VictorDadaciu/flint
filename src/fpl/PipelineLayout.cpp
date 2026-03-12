@@ -1,15 +1,20 @@
 #include "fpl/PipelineLayout.h"
 
+#include "FilterUtils.h"
 #include "cmdparser.hpp"
 #include "fpl/LineParser.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <single_include/nlohmann/json.hpp>
 #include <string>
+#include <variant>
 
 namespace flint::fpl
 {
-constexpr int VERY_BIG = 1000000;
+static constexpr int VERY_BIG = 1000000;
+static constexpr const char* cachePath = "/home/victordadaciu/workspace/flint/pipelines/.cache/";
 
 // TODO maybe store these a little differently, unordered_map maybe?
 struct TexturePlaceholder final
@@ -40,15 +45,17 @@ PipelineLayout::PipelineLayout(const cli::Parser& parser) noexcept
     {
         if (!createFromFilterName(filter))
         {
-            cleanup();
+            m_valid = false;
             return;
         }
     }
     else
     {
-        if (!loadFplFromSource(filter))
+        std::filesystem::create_directory(cachePath);
+        std::filesystem::path path{filter};
+        if (!deserializeFromCache(path.filename()) && !loadFplFromSource(path))
         {
-            cleanup();
+            m_valid = false;
             return;
         }
     }
@@ -75,11 +82,12 @@ bool PipelineLayout::createFromFilterName(const std::string& filter) noexcept
 
 bool PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexcept
 {
+    std::cout << "Compiling pipeline " << path << " from source...\n";
     std::ifstream f(path);
     if (!f)
     {
         std::cout << "Error opening file " << path << "\n";
-        return {};
+        return false;
     }
 
     std::vector<TexturePlaceholder> texPlaceholders{};
@@ -153,9 +161,21 @@ bool PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
             {
                 return false;
             }
-            if (!paramsMap.empty())
+            filterSlot.params.vals.resize(paramsMap.size());
+            filterSlot.params.isFloat.resize(paramsMap.size());
+            int i = 0;
+            for (const auto& param : paramsMap)
             {
-                utils::mapAsData(filterSlot.type, paramsMap, filterSlot.params.size, &filterSlot.params.data);
+                if (std::holds_alternative<uint32_t>(param.second))
+                {
+                    filterSlot.params.isFloat[i] = false;
+                    filterSlot.params.vals[i] = std::get<uint32_t>(param.second);
+                }
+                else
+                {
+                    filterSlot.params.isFloat[i] = true;
+                    *(float*)(&filterSlot.params.vals[i]) = std::get<float>(param.second);
+                }
             }
         }
 
@@ -185,13 +205,13 @@ bool PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
                 texPlaceholders.push_back(TexturePlaceholder{.name = outputString + std::to_string(i)});
                 slots.push_back(filterSlot);
                 filterSlot.inputs[0] = filterSlot.outputTexture;
-                filterSlot.firstIteration = false;
             }
         }
         filterSlot.outputTexture = texPlaceholders.size();
         texPlaceholders.push_back(TexturePlaceholder{.name = outputString});
         slots.push_back(filterSlot);
     }
+
     f.close();
 
     // find heights and sort by them
@@ -263,18 +283,132 @@ bool PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
         }
     }
     texCount = finalTexIndices.size();
+    std::cout << "Compilation finished successfully\n";
+    serializeToCache(path.filename());
     return true;
 }
 
-void PipelineLayout::cleanup() noexcept
+static nlohmann::json slotToJson(const FilterSlot& slot) noexcept
 {
-    m_valid = false;
-    for (auto& slot : slots)
+    nlohmann::json json{
+        {"type", (int)slot.type},
+        {"height", slot.height},
+        {"outputTexture", slot.outputTexture},
+        {"inputs", nlohmann::json::array()},
+        {"params", nlohmann::json::array()},
+    };
+
+    auto& inputsJson = json["inputs"];
+    for (int input : slot.inputs)
     {
-        if (slot.firstIteration)
+        inputsJson.push_back(input);
+    }
+
+    auto& paramsJson = json["params"];
+    for (int i = 0; i < slot.params.vals.size(); ++i)
+    {
+        if (slot.params.isFloat[i])
         {
-            delete[] reinterpret_cast<uint32_t*>(slot.params.data);
+            paramsJson.push_back(nlohmann::json{{"isFloat", true}, {"value", *(float*)(&slot.params.vals[i])}});
         }
+        else
+        {
+            paramsJson.push_back(nlohmann::json{{"isFloat", false}, {"value", slot.params.vals[i]}});
+        }
+    }
+    return json;
+}
+
+bool PipelineLayout::serializeToCache(const std::string& pipelineName) const noexcept
+{
+    std::cout << "Serializing compiled pipeline and caching...\n";
+    nlohmann::json json{{"texCount", texCount}, {"slots", nlohmann::json::array()}};
+    auto& slotsJson = json["slots"];
+    for (const auto& slot : slots)
+    {
+        slotsJson.push_back(slotToJson(slot));
+    }
+
+    std::filesystem::path path{cachePath + pipelineName + ".json"};
+    std::ofstream f{path};
+    if (!f)
+    {
+        std::cout << "Error opening cache file for write " << path << "\n";
+        return false;
+    }
+    f << std::setw(4) << json << std::endl;
+    f.close();
+    std::cout << "Caching finished successfully\n";
+    return true;
+}
+
+static void jsonToSlot(const nlohmann::json& json, FilterSlot& slot)
+{
+    slot.height = json["height"].get<int>();
+    slot.outputTexture = json["outputTexture"].get<int>();
+    slot.type = (FilterType)json["type"].get<int>();
+
+    auto& inputsJson = json["inputs"];
+    slot.inputs.resize(inputsJson.size());
+    for (int i = 0; i < slot.inputs.size(); ++i)
+    {
+        slot.inputs[i] = inputsJson[i].get<int>();
+    }
+
+    auto& paramsJson = json["params"];
+    slot.params.vals.resize(paramsJson.size());
+    slot.params.isFloat.resize(paramsJson.size());
+    for (int i = 0; i < slot.params.vals.size(); ++i)
+    {
+        slot.params.isFloat[i] = paramsJson[i]["isFloat"].get<bool>();
+        if (slot.params.isFloat[i])
+        {
+            *(float*)(&slot.params.vals[i]) = paramsJson[i]["value"].get<float>();
+        }
+        else
+        {
+            slot.params.vals[i] = paramsJson[i]["value"].get<uint32_t>();
+        }
+    }
+}
+
+bool PipelineLayout::deserializeFromCache(const std::string& pipelineName) noexcept
+{
+    try
+    {
+        std::filesystem::path path{cachePath + pipelineName + ".json"};
+        if (!std::filesystem::exists(path))
+        {
+            std::cout << "Cache file for " << pipelineName << " not found\n";
+            return false;
+        }
+
+        std::ifstream f{path};
+        if (!f)
+        {
+            std::cout << "Error opening cache file for read " << path << "\n";
+            return false;
+        }
+        std::cout << "Found cache file for " << pipelineName << ", deserializing and loading pipeline...\n";
+        nlohmann::json json{};
+        f >> json;
+        f.close();
+
+        texCount = json["texCount"].get<int>();
+
+        auto& slotsJson = json["slots"];
+        slots.resize(json["slots"].size());
+        for (int i = 0; i < slots.size(); ++i)
+        {
+            jsonToSlot(slotsJson[i], slots[i]);
+        }
+        std::cout << "Deserializing finished successfully\n";
+        return true;
+    }
+    catch (...)
+    {
+        std::cout << "Ill-formed cache file, recompiling " << pipelineName << "\n";
+        return false;
     }
 }
 } // namespace flint::fpl

@@ -1,4 +1,3 @@
 input > box_blur() > b1 # this is a comment
 b1 > box_blur(radius: 11) 10 > b2
 b2 > sobel() > output
-

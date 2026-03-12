@@ -91,31 +91,5 @@ namespace utils
     {
         return parameterMap(type).size();
     }
-
-    bool mapAsData(FilterType type, const ParameterMap& map, size_t& size, void** data) noexcept
-    {
-        if (!validateMap(type, map))
-        {
-            return false;
-        }
-
-        size = map.size() * 4;
-        *data = static_cast<void*>(new uint32_t[map.size()]);
-
-        int i = 0;
-        for (const auto& param : map)
-        {
-            if (std::holds_alternative<float>(param.second))
-            {
-                static_cast<float*>(*data)[i] = std::get<float>(param.second);
-            }
-            else
-            {
-                static_cast<uint32_t*>(*data)[i] = std::get<uint32_t>(param.second);
-            }
-            ++i;
-        }
-        return true;
-    }
 } // namespace utils
 } // namespace flint

@@ -28,7 +28,7 @@ void printError(const std::filesystem::path& path, int line, int col, const std:
     std::cout << "fpl ERROR " << path << " (" << line << ", " << col << "): " << msg << "\n";
 }
 
-#ifndef NDEBUG
+#if 0
 static std::string tokenTypeToStr(TokenType type) noexcept
 {
     switch (type)
@@ -349,7 +349,7 @@ bool LineParser::processOutputSection(LineInfo& info) noexcept
 {
     if (!expect({TokenType::STRING}))
     {
-        printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected at least one output texture name");
+        printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected an output texture name");
         return false;
     }
     info.output = m_tokens[m_index];
@@ -357,10 +357,7 @@ bool LineParser::processOutputSection(LineInfo& info) noexcept
 
     if (m_index < m_tokens.size())
     {
-        printError(m_path,
-                   m_number,
-                   m_tokens[m_index].c,
-                   "Invalid syntax, too many tokens in output section, expected only an output texture name");
+        printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected only a single output texture name");
         return false;
     }
     return true;
@@ -379,7 +376,7 @@ bool LineParser::parse(LineInfo& info) noexcept
         return true;
     }
 
-#ifndef NDEBUG
+#if 0
     for (const auto& t : m_tokens)
     {
         printToken(info.number, t);

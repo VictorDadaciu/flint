@@ -29,6 +29,5 @@ namespace utils
     int parameterCount(FilterType) noexcept;
     ParameterMap parameterMap(FilterType) noexcept;
     bool validateMap(FilterType, const ParameterMap&) noexcept;
-    bool mapAsData(FilterType, const ParameterMap&, size_t&, void**) noexcept;
 } // namespace utils
 } // namespace flint

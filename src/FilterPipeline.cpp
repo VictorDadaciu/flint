@@ -51,13 +51,6 @@ void FilterPipeline::cleanup() noexcept
     {
         instance.second->cleanup();
     }
-    for (auto& slot : m_layout.slots)
-    {
-        if (slot.firstIteration && slot.params.data)
-        {
-            delete[] static_cast<uint32_t*>(slot.params.data);
-        }
-    }
 }
 
 static bool transitionToTransfer(Texture& tex, SubmissionStack& submissions) noexcept
@@ -229,8 +222,8 @@ bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
                            filter->pipelineLayout,
                            VK_SHADER_STAGE_COMPUTE_BIT,
                            0,
-                           filterSlot.params.size,
-                           filterSlot.params.data);
+                           filterSlot.params.vals.size() * sizeof(uint32_t),
+                           filterSlot.params.vals.data());
     }
 
     vkCmdDispatch(submissions[compute].commandBuffer, imageMetadata.groupX, imageMetadata.groupY, 1);
