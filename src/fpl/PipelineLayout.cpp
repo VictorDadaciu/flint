@@ -1,26 +1,28 @@
 #include "fpl/PipelineLayout.h"
 
-#include "FilterUtils.h"
+#include "FilterInstance.h"
+#include "Utils.h"
 #include "cmdparser.hpp"
 #include "fpl/LineParser.h"
 
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
-#include <single_include/nlohmann/json.hpp>
+#include <ios>
+#include <iostream>
+#include <memory>
 #include <string>
-#include <variant>
+#include <vector>
 
 namespace flint::fpl
 {
 static constexpr int VERY_BIG = 1000000;
 static constexpr const char* cachePath = "/home/victordadaciu/workspace/flint/pipelines/.cache/";
 
-// TODO maybe store these a little differently, unordered_map maybe?
 struct TexturePlaceholder final
 {
     std::string name{};
-    int createdAt = VERY_BIG; // first height, then filter slot
+    int createdAt = VERY_BIG; // first height, then filter slot index
     int lastUsedAt = -1;
     int tex = -1;
 };
@@ -43,7 +45,7 @@ PipelineLayout::PipelineLayout(const cli::Parser& parser) noexcept
     std::string filter = parser.get<std::string>("f");
     if (!filter.ends_with(".fpl"))
     {
-        if (!createFromFilterName(filter))
+        if (!createFromFilterName(parser))
         {
             m_valid = false;
             return;
@@ -53,7 +55,7 @@ PipelineLayout::PipelineLayout(const cli::Parser& parser) noexcept
     {
         std::filesystem::create_directory(cachePath);
         std::filesystem::path path{filter};
-        if (!deserializeFromCache(path.filename()) && !loadFplFromSource(path))
+        if (!deserializeFromCache(path) && !loadFplFromSource(path))
         {
             m_valid = false;
             return;
@@ -62,21 +64,55 @@ PipelineLayout::PipelineLayout(const cli::Parser& parser) noexcept
     m_valid = true;
 }
 
-bool PipelineLayout::createFromFilterName(const std::string& filter) noexcept
+void PipelineLayout::cleanup() noexcept
+{
+    for (auto& instance : instances)
+    {
+        instance.second->cleanup();
+    }
+}
+
+bool PipelineLayout::createFromFilterName(const cli::Parser& parser) noexcept
 {
     texCount = 2;
 
     FilterSlot slot{};
     slot.inputs = {-1};
     slot.outputTexture = 1;
-    const auto& it = toFilterType.find(filter);
-    if (it == toFilterType.end())
+    slot.filterName = parser.get<std::string>("f");
+
+    auto instance = std::make_unique<FilterInstance>(slot.filterName);
+    if (!instance->valid())
     {
-        std::cout << "Invalid filter type requested\n";
+        instance->cleanup();
         return false;
     }
-    slot.type = it->second;
+
+    if (instance->inputCount > 1)
+    {
+        std::cout << "Invalid filter call, cannot call a filter that needs more than one input from the command-line\n";
+        cleanup();
+        return false;
+    }
+
+    int i = 0;
+    slot.params.resize(instance->params.size());
+    for (const auto& param : instance->params)
+    {
+        const std::string& paramName = std::get<0>(param);
+        bool isFloat = std::get<1>(param);
+        if (isFloat)
+        {
+            *(float*)(&slot.params[i++]) = parser.get<float>(paramName);
+        }
+        else
+        {
+            slot.params[i++] = parser.get<uint32_t>(paramName);
+        }
+    }
+
     slots.push_back(slot);
+    instances[slot.filterName] = std::move(instance);
     return true;
 }
 
@@ -136,45 +172,75 @@ bool PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
         }
 
         {
-            std::string filterName = std::string(std::get<std::string_view>(info.filterType.val));
-            const auto& it = toFilterType.find(filterName);
-            if (it == toFilterType.end())
+            filterSlot.filterName = std::string(std::get<std::string_view>(info.filterType.val));
+            const auto& it = instances.find(filterSlot.filterName);
+            if (it == instances.end())
             {
-                printError(path, line, info.filterType.c, "Invalid syntax, invalid filter name");
-                return false;
+                instances[filterSlot.filterName] = std::make_unique<FilterInstance>(filterSlot.filterName);
+                if (!instances[filterSlot.filterName]->valid())
+                {
+                    cleanup();
+                    return false;
+                }
             }
-            filterSlot.type = it->second;
+        }
 
-            auto paramsMap = utils::parameterMap(filterSlot.type);
-            for (const auto& token : info.params)
+        const auto& instance = instances[filterSlot.filterName];
+        {
+            if (instance->params.size() != info.params.size())
             {
-                if (token.second.type == TokenType::FLOAT)
-                {
-                    paramsMap[std::string(token.first)] = std::get<float>(token.second.val);
-                }
-                else
-                {
-                    paramsMap[std::string(token.first)] = std::get<uint32_t>(token.second.val);
-                }
-            }
-            if (!utils::validateMap(filterSlot.type, paramsMap))
-            {
+                printError(path,
+                           line,
+                           info.filterType.c,
+                           "Invalid syntax, expected " +
+                               std::to_string(instance->params.size()) +
+                               " parameter(s) in call to filter '" +
+                               filterSlot.filterName +
+                               "', found " +
+                               std::to_string(info.params.size()) +
+                               " instead\n");
                 return false;
             }
-            filterSlot.params.vals.resize(paramsMap.size());
-            filterSlot.params.isFloat.resize(paramsMap.size());
+
             int i = 0;
-            for (const auto& param : paramsMap)
+            filterSlot.params.resize(instance->params.size());
+            for (const auto& param : instance->params)
             {
-                if (std::holds_alternative<uint32_t>(param.second))
+                const std::string& paramName = std::get<0>(param);
+                bool isFloat = std::get<1>(param);
+                const auto& it = info.params.find(paramName);
+                if (it == info.params.end())
                 {
-                    filterSlot.params.isFloat[i] = false;
-                    filterSlot.params.vals[i] = std::get<uint32_t>(param.second);
+                    printError(path,
+                               line,
+                               info.filterType.c,
+                               "Invalid syntax, parameter '" +
+                                   paramName +
+                                   "' not present in call to filter '" +
+                                   filterSlot.filterName);
+                    return false;
+                }
+
+                if (!isFloat && it->second.type == TokenType::INT)
+                {
+                    filterSlot.params[i++] = std::get<uint32_t>(it->second.val);
+                }
+                else if (isFloat && it->second.type == TokenType::FLOAT)
+                {
+                    *(float*)(&filterSlot.params[i++]) = std::get<float>(it->second.val);
                 }
                 else
                 {
-                    filterSlot.params.isFloat[i] = true;
-                    *(float*)(&filterSlot.params.vals[i]) = std::get<float>(param.second);
+                    printError(path,
+                               line,
+                               info.filterType.c,
+                               "Invalid syntax, parameter '" +
+                                   paramName +
+                                   "' in call to filter '" +
+                                   filterSlot.filterName +
+                                   "' is expected to be of type " +
+                                   (isFloat ? "float" : "int"));
+                    return false;
                 }
             }
         }
@@ -195,11 +261,26 @@ bool PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
                 "Invalid syntax, cannot overwrite '" + std::string(outputName) + "', must output to a new texture");
             return false;
         }
+
         std::string outputString = std::string(outputName);
-        // TODO restrict iterations to filters that take only 1 input
-        if (info.iterations > 1)
+        int iterations = info.iterations.type == TokenType::COUNT ? 1 : std::get<uint32_t>(info.iterations.val);
+        if (iterations < 1)
         {
-            for (int i = 1; i < info.iterations; ++i)
+            printError(path,
+                       line,
+                       info.iterations.c,
+                       "Invalid argument, iterations must be a positive non-null integer value");
+            return false;
+        }
+        if (iterations > 1)
+        {
+            if (instance->inputCount > 1)
+            {
+                printError(
+                    path, line, info.iterations.c, "Invalid syntax, filters with more than 1 input cannot be iterated");
+                return false;
+            }
+            for (int i = 1; i < iterations; ++i)
             {
                 filterSlot.outputTexture = texPlaceholders.size();
                 texPlaceholders.push_back(TexturePlaceholder{.name = outputString + std::to_string(i)});
@@ -288,127 +369,92 @@ bool PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
     return true;
 }
 
-static nlohmann::json slotToJson(const FilterSlot& slot) noexcept
-{
-    nlohmann::json json{
-        {"type", (int)slot.type},
-        {"height", slot.height},
-        {"outputTexture", slot.outputTexture},
-        {"inputs", nlohmann::json::array()},
-        {"params", nlohmann::json::array()},
-    };
-
-    auto& inputsJson = json["inputs"];
-    for (int input : slot.inputs)
-    {
-        inputsJson.push_back(input);
-    }
-
-    auto& paramsJson = json["params"];
-    for (int i = 0; i < slot.params.vals.size(); ++i)
-    {
-        if (slot.params.isFloat[i])
-        {
-            paramsJson.push_back(nlohmann::json{{"isFloat", true}, {"value", *(float*)(&slot.params.vals[i])}});
-        }
-        else
-        {
-            paramsJson.push_back(nlohmann::json{{"isFloat", false}, {"value", slot.params.vals[i]}});
-        }
-    }
-    return json;
-}
-
 bool PipelineLayout::serializeToCache(const std::string& pipelineName) const noexcept
 {
     std::cout << "Serializing compiled pipeline and caching...\n";
-    nlohmann::json json{{"texCount", texCount}, {"slots", nlohmann::json::array()}};
-    auto& slotsJson = json["slots"];
+    std::vector<uint32_t> toWrite{};
+    toWrite.push_back(texCount);
+    toWrite.push_back(slots.size());
     for (const auto& slot : slots)
     {
-        slotsJson.push_back(slotToJson(slot));
+        toWrite.push_back(static_cast<uint32_t>(slot.height));
+        toWrite.push_back(static_cast<uint32_t>(slot.outputTexture));
+        utils::combine(slot.filterName, toWrite);
+        toWrite.push_back(slot.inputs.size());
+        for (const auto& input : slot.inputs)
+        {
+            toWrite.push_back(static_cast<uint32_t>(input));
+        }
+        toWrite.push_back(slot.params.size());
+        for (const auto& param : slot.params)
+        {
+            toWrite.push_back(static_cast<uint32_t>(param));
+        }
     }
 
-    std::filesystem::path path{cachePath + pipelineName + ".json"};
-    std::ofstream f{path};
+    std::filesystem::path path{cachePath + pipelineName + ".cache"};
+    std::ofstream f{path, std::ios_base::binary};
     if (!f)
     {
         std::cout << "Error opening cache file for write " << path << "\n";
         return false;
     }
-    f << std::setw(4) << json << std::endl;
+    f.write(reinterpret_cast<const char*>(toWrite.data()), toWrite.size() * sizeof(uint32_t));
     f.close();
     std::cout << "Caching finished successfully\n";
     return true;
 }
 
-static void jsonToSlot(const nlohmann::json& json, FilterSlot& slot)
+bool PipelineLayout::deserializeFromCache(const std::filesystem::path& path) noexcept
 {
-    slot.height = json["height"].get<int>();
-    slot.outputTexture = json["outputTexture"].get<int>();
-    slot.type = (FilterType)json["type"].get<int>();
-
-    auto& inputsJson = json["inputs"];
-    slot.inputs.resize(inputsJson.size());
-    for (int i = 0; i < slot.inputs.size(); ++i)
+    const std::string& pipelineName = path.filename();
+    std::filesystem::path fullCachePath{cachePath + pipelineName + ".cache"};
+    if (!std::filesystem::exists(fullCachePath))
     {
-        slot.inputs[i] = inputsJson[i].get<int>();
-    }
-
-    auto& paramsJson = json["params"];
-    slot.params.vals.resize(paramsJson.size());
-    slot.params.isFloat.resize(paramsJson.size());
-    for (int i = 0; i < slot.params.vals.size(); ++i)
-    {
-        slot.params.isFloat[i] = paramsJson[i]["isFloat"].get<bool>();
-        if (slot.params.isFloat[i])
-        {
-            *(float*)(&slot.params.vals[i]) = paramsJson[i]["value"].get<float>();
-        }
-        else
-        {
-            slot.params.vals[i] = paramsJson[i]["value"].get<uint32_t>();
-        }
-    }
-}
-
-bool PipelineLayout::deserializeFromCache(const std::string& pipelineName) noexcept
-{
-    try
-    {
-        std::filesystem::path path{cachePath + pipelineName + ".json"};
-        if (!std::filesystem::exists(path))
-        {
-            std::cout << "Cache file for " << pipelineName << " not found\n";
-            return false;
-        }
-
-        std::ifstream f{path};
-        if (!f)
-        {
-            std::cout << "Error opening cache file for read " << path << "\n";
-            return false;
-        }
-        std::cout << "Found cache file for " << pipelineName << ", deserializing and loading pipeline...\n";
-        nlohmann::json json{};
-        f >> json;
-        f.close();
-
-        texCount = json["texCount"].get<int>();
-
-        auto& slotsJson = json["slots"];
-        slots.resize(json["slots"].size());
-        for (int i = 0; i < slots.size(); ++i)
-        {
-            jsonToSlot(slotsJson[i], slots[i]);
-        }
-        std::cout << "Deserializing finished successfully\n";
-        return true;
-    }
-    catch (...)
-    {
-        std::cout << "Ill-formed cache file, recompiling " << pipelineName << "\n";
+        std::cout << "Cache file for " << pipelineName << " not found\n";
         return false;
     }
+    if (std::filesystem::last_write_time(path) > std::filesystem::last_write_time(fullCachePath))
+    {
+        std::cout << "Cache file is too old, " << pipelineName << " needs to be recompiled\n";
+        return false;
+    }
+
+    std::cout << "Found cache file for " << pipelineName << ", deserializing and loading pipeline...\n";
+
+    std::ifstream f{fullCachePath, std::ios_base::binary};
+    texCount = utils::readInt(f);
+    slots.resize(utils::readInt(f));
+    for (auto& slot : slots)
+    {
+        slot.height = utils::readInt(f);
+        slot.outputTexture = utils::readInt(f);
+        slot.filterName = utils::uncombine(f);
+        const auto& it = instances.find(slot.filterName);
+        if (it == instances.end())
+        {
+            instances[slot.filterName] = std::make_unique<FilterInstance>(slot.filterName);
+            if (!instances[slot.filterName]->valid())
+            {
+                cleanup();
+                return false;
+            }
+        }
+
+        slot.inputs.resize(utils::readInt(f));
+        for (auto& input : slot.inputs)
+        {
+            input = utils::readInt(f);
+        }
+        slot.params.resize(utils::readInt(f));
+        for (auto& param : slot.params)
+        {
+            param = utils::readInt(f);
+        }
+    }
+    f.close();
+
+    std::cout << "Deserializing finished successfully\n";
+    return true;
 }
 } // namespace flint::fpl

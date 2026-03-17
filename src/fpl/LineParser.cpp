@@ -25,7 +25,7 @@ static bool isSimpleToken(char c) noexcept
 
 void printError(const std::filesystem::path& path, int line, int col, const std::string& msg) noexcept
 {
-    std::cout << "fpl ERROR " << path << " (" << line << ", " << col << "): " << msg << "\n";
+    std::cerr << "\nfpl ERROR " << path << " (" << line << ", " << col << "): " << msg << "\n";
 }
 
 #if 0
@@ -324,15 +324,7 @@ bool LineParser::processFilterSection(LineInfo& info) noexcept
 
     if (expect({TokenType::INT}))
     {
-        info.iterations = std::get<uint32_t>(m_tokens[m_index].val);
-        if (info.iterations < 1)
-        {
-            printError(m_path,
-                       m_number,
-                       m_tokens[m_index].c,
-                       "Invalid argument, iterations must be a positive non-null integer value");
-            return false;
-        }
+        info.iterations = m_tokens[m_index];
         ++m_index;
     }
 

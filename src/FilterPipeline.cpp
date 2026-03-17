@@ -1,7 +1,6 @@
 #include "FilterPipeline.h"
 
 #include "FilterInstance.h"
-#include "FilterUtils.h"
 #include "StagingBuffer.h"
 #include "SubmissionInfo.h"
 #include "SubmissionStack.h"
@@ -14,7 +13,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <memory>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
@@ -24,22 +22,7 @@ FilterPipeline::FilterPipeline(const cli::Parser& args) noexcept : m_layout(args
 {
     if (!m_layout.valid())
     {
-        cleanup();
         return;
-    }
-
-    for (const auto& slot : m_layout.slots)
-    {
-        const auto& it = m_filterInstances.find(slot.type);
-        if (it == m_filterInstances.end())
-        {
-            m_filterInstances[slot.type] = std::make_unique<FilterInstance>(slot.type);
-            if (!m_filterInstances[slot.type]->valid())
-            {
-                cleanup();
-                return;
-            }
-        }
     }
     m_valid = true;
 }
@@ -47,10 +30,7 @@ FilterPipeline::FilterPipeline(const cli::Parser& args) noexcept : m_layout(args
 void FilterPipeline::cleanup() noexcept
 {
     m_valid = false;
-    for (auto& instance : m_filterInstances)
-    {
-        instance.second->cleanup();
-    }
+    m_layout.cleanup();
 }
 
 static bool transitionToTransfer(Texture& tex, SubmissionStack& submissions) noexcept
@@ -182,7 +162,7 @@ bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
                                  SubmissionStack& submissions) const noexcept
 {
     int compute = submissions.get();
-    FilterInstance* filter = m_filterInstances[filterSlot.type].get();
+    const auto& filter = m_layout.instances.find(filterSlot.filterName)->second;
     if (!(submissions[compute].begin()))
     {
         return false;
@@ -216,14 +196,14 @@ bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
     submissions[compute].prereqs.push_back(texes[filterSlot.outputTexture].lastSubmissionIndex);
     texes[filterSlot.outputTexture].lastSubmissionIndex = compute;
 
-    if (utils::parameterCount(filterSlot.type))
+    if (filter->params.size() > 0)
     {
         vkCmdPushConstants(submissions[compute].commandBuffer,
                            filter->pipelineLayout,
                            VK_SHADER_STAGE_COMPUTE_BIT,
                            0,
-                           filterSlot.params.vals.size() * sizeof(uint32_t),
-                           filterSlot.params.vals.data());
+                           filterSlot.params.size() * sizeof(uint32_t),
+                           filterSlot.params.data());
     }
 
     vkCmdDispatch(submissions[compute].commandBuffer, imageMetadata.groupX, imageMetadata.groupY, 1);

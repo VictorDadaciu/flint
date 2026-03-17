@@ -38,7 +38,7 @@ struct LineInfo final
     Token filterType{};
     Token output{};
     std::map<std::string_view, Token> params{};
-    int iterations = 1;
+    Token iterations{};
     int number{};
     bool empty{};
 };

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "FilterUtils.h"
-
+#include <string>
+#include <vector>
 #include <vulkan/vulkan_core.h>
 
 namespace flint
@@ -9,7 +9,7 @@ namespace flint
 class FilterInstance
 {
 public:
-    FilterInstance(FilterType) noexcept;
+    FilterInstance(const std::string&) noexcept;
 
     void cleanup() noexcept;
 
@@ -17,8 +17,18 @@ public:
 
     VkPipeline pipeline{};
     VkPipelineLayout pipelineLayout{};
+    int inputCount = -1;
+    std::vector<std::tuple<std::string, bool>> params;
 
 private:
+    VkShaderModule compileFromSource(const std::string&) noexcept;
+
+    VkShaderModule tryLoadFromCache(const std::string&) noexcept;
+
+    bool serializeToCache(const std::string&) const noexcept;
+
+    bool deserializeFromCache(const std::string&) noexcept;
+
     bool m_valid{};
 };
 } // namespace flint

@@ -1,0 +1,31 @@
+#version 460
+
+layout(set = 0, binding = 0, rgba8ui) uniform readonly uimage2D input1;
+
+layout(set = 1, binding = 0, rgba8ui) uniform readonly uimage2D input2;
+
+layout(set = 2, binding = 0, rgba8ui) uniform writeonly uimage2D outputImg;
+
+layout(push_constant) uniform Params
+{
+    float where;
+}
+
+params;
+
+layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
+
+void main()
+{
+    ivec2 size = imageSize(outputImg);
+    ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
+    bool outOfBounds = coords.x >= size.x || coords.y >= size.y;
+    if (outOfBounds)
+    {
+        return;
+    }
+    float mix = clamp(params.where, 0.0, 1.0);
+    uvec3 img1 = uvec3(vec3(imageLoad(input1, coords).rgb) * mix);
+    uvec3 img2 = uvec3(vec3(imageLoad(input2, coords).rgb) * (1.0 - mix));
+    imageStore(outputImg, coords, uvec4(img1 + img2, 255));
+}

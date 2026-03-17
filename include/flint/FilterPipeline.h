@@ -1,16 +1,12 @@
 #pragma once
 
-#include "FilterInstance.h"
-#include "FilterUtils.h"
 #include "SubmissionStack.h"
 #include "Texture.h"
 #include "cmdparser.hpp"
 #include "fpl/PipelineLayout.h"
 
 #include <filesystem>
-#include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace flint
@@ -37,7 +33,6 @@ private:
 
     bool applyFilter(std::vector<Texture>&, const fpl::FilterSlot&, SubmissionStack&) const noexcept;
 
-    mutable std::unordered_map<FilterType, std::unique_ptr<FilterInstance>> m_filterInstances{};
     fpl::PipelineLayout m_layout;
     bool m_valid{};
 };

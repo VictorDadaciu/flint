@@ -18,7 +18,6 @@ static bool applyFilters(const cli::Parser& args) noexcept
     flint::FilterPipeline pipeline(args);
     if (!pipeline.valid())
     {
-        pipeline.cleanup();
         return false;
     }
     unsigned char* raw = flint::loadImage(args.get<std::string>("i"));
@@ -116,10 +115,11 @@ static bool applyFilters(const cli::Parser& args) noexcept
 
 static bool parseArgs(cli::Parser& args) noexcept
 {
-    // TODO remove default
+    // TODO remove default values
     args.set_optional<std::string>(
         "i", "image", "/home/victordadaciu/workspace/flint/images/vault_boy.jpg", "Valid path to an image");
     args.set_optional<std::string>("f", "filter", "", "Valid filter name");
+    args.set_optional<uint32_t>("radius", "radius", 3, "Parameter");
     args.run_and_exit_if_error();
 
     if (args.get<std::string>("i").empty())
