@@ -1,6 +1,6 @@
 #pragma once
 
-#include <string>
+#include <filesystem>
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
@@ -20,17 +20,23 @@ extern struct ImageMetadata
     inline int size() const noexcept { return resolution() * 4; }
 } imageMetadata;
 
-unsigned char* loadImage(const std::string&) noexcept;
+unsigned char* loadImage(const std::filesystem::path&) noexcept;
 
-void writeImage(const std::string&) noexcept;
+void writeImage(const std::filesystem::path&) noexcept;
 
-struct Texture
+struct Texture final
 {
     Texture() noexcept;
 
-    inline bool valid() const noexcept { return m_valid; }
+    Texture(Texture&) = delete;
 
-    void cleanup() noexcept;
+    Texture(Texture&&) noexcept;
+
+    void operator=(Texture&) = delete;
+
+    void operator=(Texture&&) noexcept;
+
+    ~Texture() noexcept;
 
     VkImage image{};
     VkImageView imageView{};
@@ -39,12 +45,10 @@ struct Texture
     int lastSubmissionIndex = -1;
 
 private:
-    bool createImage() noexcept;
+    void createImage() noexcept;
 
-    bool createImageView() noexcept;
+    void createImageView() noexcept;
 
-    bool createDescriptorSet() noexcept;
-
-    bool m_valid{};
+    void createDescriptorSet() noexcept;
 };
 } // namespace flint

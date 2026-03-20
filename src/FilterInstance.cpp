@@ -1,5 +1,6 @@
 #include "FilterInstance.h"
 
+#include "Error.h"
 #include "Utils.h"
 #include "VkContext.h"
 #include "shaderc/shaderc.h"
@@ -11,6 +12,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
@@ -33,22 +35,17 @@ static std::string_view nextToken(std::string_view& view, int index = 0) noexcep
     return token;
 }
 
-// TODO better error handling this is a mess
 FilterInstance::FilterInstance(const std::string& filterName) noexcept
 {
     if (!std::filesystem::exists(filterPath + filterName + ".comp"))
     {
-        std::cout << "The filter requested does not exist " << filterName << "\n";
-        return;
+        fail("The requested filter does not exist");
     }
+
     VkShaderModule module = tryLoadFromCache(filterName);
     if (!module)
     {
         module = compileFromSource(filterName);
-    }
-    if (!module)
-    {
-        return;
     }
 
     std::vector<VkDescriptorSetLayout> descriptorSets(inputCount + 1, ctx->descriptorSetLayout);
@@ -69,8 +66,7 @@ FilterInstance::FilterInstance(const std::string& filterName) noexcept
 
     if (VK_FAILED(vkCreatePipelineLayout(ctx->device, &pipelineLayoutInfo, nullptr, &pipelineLayout)))
     {
-        cleanup();
-        return;
+        fail("Failed to create vulkan pipeline layout for " + filterName);
     }
 
     VkPipelineShaderStageCreateInfo shaderInfo{};
@@ -87,17 +83,35 @@ FilterInstance::FilterInstance(const std::string& filterName) noexcept
     if (VK_FAILED(vkCreateComputePipelines(ctx->device, nullptr, 1, &pipelineInfo, nullptr, &pipeline)))
     {
         vkDestroyShaderModule(ctx->device, module, nullptr);
-        cleanup();
-        return;
+        fail("Failed to create vulkan shader module for " + filterName);
     }
 
     vkDestroyShaderModule(ctx->device, module, nullptr);
-    m_valid = true;
 }
 
-void FilterInstance::cleanup() noexcept
+FilterInstance::FilterInstance(FilterInstance&& other) noexcept :
+    pipeline(other.pipeline), pipelineLayout(other.pipelineLayout), inputCount(other.inputCount),
+    params(std::move(other.params))
 {
-    m_valid = false;
+    other.pipeline = nullptr;
+    other.pipelineLayout = nullptr;
+    other.inputCount = 0;
+    other.params.clear();
+}
+
+void FilterInstance::operator=(FilterInstance&& other) noexcept
+{
+    pipeline = other.pipeline;
+    pipelineLayout = other.pipelineLayout;
+    inputCount = other.inputCount;
+    params = std::move(other.params);
+    other.pipeline = nullptr;
+    other.pipelineLayout = nullptr;
+    other.inputCount = 0;
+}
+
+FilterInstance::~FilterInstance() noexcept
+{
     vkDestroyPipeline(ctx->device, pipeline, nullptr);
     vkDestroyPipelineLayout(ctx->device, pipelineLayout, nullptr);
 }
@@ -108,12 +122,12 @@ VkShaderModule FilterInstance::tryLoadFromCache(const std::string& filterName) n
     std::filesystem::path spvPath = cachePath + filterName + ".comp.spv";
     if (!std::filesystem::exists(spvPath))
     {
-        std::cout << "SPIRV file does not exist for " << filterName << ", needs to be compiled\n";
+        warn("SPIRV file does not exist for '" + filterName + "', needs to be recompiled");
         return nullptr;
     }
     if (std::filesystem::last_write_time(path) > std::filesystem::last_write_time(spvPath))
     {
-        std::cout << "SPIRV file is too old, " << filterName << " needs to be recompiled\n";
+        warn("SPIRV file for '" + filterName + "' is too old, needs to be recompiled");
         return nullptr;
     }
 
@@ -127,6 +141,7 @@ VkShaderModule FilterInstance::tryLoadFromCache(const std::string& filterName) n
     {
         return nullptr;
     }
+
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     createInfo.codeSize = buffer.size();
@@ -135,10 +150,38 @@ VkShaderModule FilterInstance::tryLoadFromCache(const std::string& filterName) n
     VkShaderModule shaderModule{};
     if (VK_FAILED(vkCreateShaderModule(ctx->device, &createInfo, nullptr, &shaderModule)))
     {
-        std::cout << "Failed to create vulkan shader module for " << filterName << "\n";
-        return nullptr;
+        fail("Failed to create vulkan shader module for '" + filterName + "'");
     }
     return shaderModule;
+}
+
+static std::string assemble(const shaderc::Compiler& compiler, const std::string& name, const std::string& src) noexcept
+{
+    shaderc::CompileOptions options{};
+    options.SetOptimizationLevel(shaderc_optimization_level_zero);
+    shaderc::AssemblyCompilationResult result = compiler.CompileGlslToSpvAssembly(
+        src.c_str(), shaderc_shader_kind::shaderc_glsl_compute_shader, name.c_str(), options);
+
+    if (result.GetCompilationStatus() != shaderc_compilation_status_success)
+    {
+        fail(result.GetErrorMessage());
+    }
+    return std::string{result.cbegin(), result.cend()};
+}
+
+static std::vector<uint32_t>
+compile(const shaderc::Compiler& compiler, const std::string& name, const std::string& src) noexcept
+{
+    shaderc::CompileOptions options{};
+    options.SetOptimizationLevel(shaderc_optimization_level_performance);
+    shaderc::SpvCompilationResult result =
+        compiler.CompileGlslToSpv(src.c_str(), shaderc_shader_kind::shaderc_glsl_compute_shader, name.c_str(), options);
+
+    if (result.GetCompilationStatus() != shaderc_compilation_status_success)
+    {
+        fail(result.GetErrorMessage());
+    }
+    return std::vector<uint32_t>{result.cbegin(), result.cend()};
 }
 
 VkShaderModule FilterInstance::compileFromSource(const std::string& filterName) noexcept
@@ -151,27 +194,13 @@ VkShaderModule FilterInstance::compileFromSource(const std::string& filterName) 
         auto fileVec = utils::readEntireFile(filterPath + filterName + ".comp");
         if (fileVec.empty())
         {
-            return nullptr;
+            fail("Shader file for '" + filterName + "' was empty, could not compile");
         }
         src = std::string{fileVec.cbegin(), fileVec.cend()};
     }
 
     // to assembly for reflection
-    std::string assembly;
-    {
-        shaderc::CompileOptions options{};
-        options.SetOptimizationLevel(shaderc_optimization_level_zero);
-        shaderc::AssemblyCompilationResult result = compiler.CompileGlslToSpvAssembly(
-            src.c_str(), shaderc_shader_kind::shaderc_glsl_compute_shader, filterName.c_str(), options);
-
-        if (result.GetCompilationStatus() != shaderc_compilation_status_success)
-        {
-            std::cout << result.GetErrorMessage();
-            return nullptr;
-        }
-        assembly = std::string{result.cbegin(), result.cend()};
-    }
-
+    std::string assembly{assemble(compiler, filterName, src)};
     std::string_view view{assembly};
     while (!view.empty())
     {
@@ -208,21 +237,8 @@ VkShaderModule FilterInstance::compileFromSource(const std::string& filterName) 
     }
     serializeToCache(filterName);
 
-    // to binary
-    std::vector<uint32_t> buffer{};
-    {
-        shaderc::CompileOptions options{};
-        options.SetOptimizationLevel(shaderc_optimization_level_performance);
-        shaderc::SpvCompilationResult result = compiler.CompileGlslToSpv(
-            src.c_str(), shaderc_shader_kind::shaderc_glsl_compute_shader, filterName.c_str(), options);
+    std::vector<uint32_t> buffer{compile(compiler, filterName, src)};
 
-        if (result.GetCompilationStatus() != shaderc_compilation_status_success)
-        {
-            std::cout << result.GetErrorMessage();
-            return nullptr;
-        }
-        buffer = std::vector<uint32_t>{result.cbegin(), result.cend()};
-    }
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     createInfo.codeSize = buffer.size() * sizeof(uint32_t);
@@ -231,15 +247,13 @@ VkShaderModule FilterInstance::compileFromSource(const std::string& filterName) 
     VkShaderModule shaderModule{};
     if (VK_FAILED(vkCreateShaderModule(ctx->device, &createInfo, nullptr, &shaderModule)))
     {
-        std::cout << "Failed to create vulkan shader module for " << filterName << "\n";
-        return nullptr;
+        fail("Failed to create vulkan shader module for '" + filterName + "'");
     }
     std::filesystem::path path{cachePath + filterName + ".comp.spv"};
     std::ofstream f{path, std::ios_base::binary};
     if (!f)
     {
-        std::cout << "Error opening shader file for write " << path << "\n";
-        return nullptr;
+        fail("Failed to open shader file for write '" + path.string() + "'");
     }
     f.write(reinterpret_cast<const char*>(buffer.data()), buffer.size() * sizeof(uint32_t));
     f.close();
@@ -262,13 +276,12 @@ bool FilterInstance::serializeToCache(const std::string& filterName) const noexc
     std::ofstream f{path, std::ios_base::binary};
     if (!f)
     {
-        std::cout << "Error opening cache file for write " << path << "\n";
-        return false;
+        fail("Failed to open cache file for write '" + path.string() + "'");
     }
     f.write(reinterpret_cast<const char*>(toWrite.data()), toWrite.size() * sizeof(uint32_t));
     f.close();
 
-    std::cout << "Caching finished successfully\n";
+    std::cout << "Caching filter '" << filterName << "' finished successfully\n";
     return true;
 }
 
@@ -277,13 +290,18 @@ bool FilterInstance::deserializeFromCache(const std::string& filterName) noexcep
     std::filesystem::path fullCachePath{cachePath + filterName + ".cache"};
     if (!std::filesystem::exists(fullCachePath))
     {
-        std::cout << "Cache file for " << filterName << " not found\n";
+        warn("Cache file for '" + filterName + "' not found, needs to be recompiled");
         return false;
     }
 
-    std::cout << "Found cache file for " << filterName << ", deserializing and loading filter...\n";
+    std::cout << "Found cache file for filter '" << filterName << "', deserializing and loading...\n";
 
     std::ifstream f{fullCachePath, std::ios_base::binary};
+    if (!f)
+    {
+        warn("Could not open cache file for filter '" + filterName + "', needs to be recompiled");
+        return false;
+    }
     inputCount = utils::readInt(f);
     params.resize(utils::readInt(f));
     for (auto& param : params)

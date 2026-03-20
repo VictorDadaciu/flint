@@ -1,4 +1,4 @@
 input > box_blur(radius: 5) 3 > blurred
 blurred > sobel() > edge
 
-input, edge > mix(where: 1) > output
+input, edge > mix(where: 0.4) > output

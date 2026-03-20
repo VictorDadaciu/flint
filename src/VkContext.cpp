@@ -1,5 +1,6 @@
 #include "VkContext.h"
 
+#include "Error.h"
 #include "cmdparser.hpp"
 
 #include <array>
@@ -53,7 +54,9 @@ static void destroyDebugUtilsMessengerEXT(VkInstance instance,
 {
     auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
     if (func != nullptr)
+    {
         func(instance, debugMessenger, pAllocator);
+    }
 }
 
 static void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo)
@@ -99,15 +102,18 @@ static bool checkValidationLayerSupport()
     return true;
 }
 
-static bool setupDebugCallback()
+void VkContext::setupDebugCallback() noexcept
 {
     VkDebugUtilsMessengerCreateInfoEXT createInfo{};
     populateDebugMessengerCreateInfo(createInfo);
-    return !VK_FAILED(createDebugUtilsMessengerEXT(ctx->instance, &createInfo, nullptr, &debugMessenger));
+    if (VK_FAILED(createDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger)))
+    {
+        fail("Failed to create vulkan debug utils messenger");
+    }
 }
 #endif
 
-static bool createInstance()
+void VkContext::createInstance() noexcept
 {
     VkApplicationInfo appInfo{};
     appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -120,11 +126,11 @@ static bool createInstance()
     VkInstanceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     createInfo.pApplicationInfo = &appInfo;
+
 #ifndef NDEBUG
     if (!checkValidationLayerSupport())
     {
-        std::cout << "Vulkan validation layers requested are not supported\n";
-        return false;
+        fail("Vulkan validation layers requested are not supported");
     }
     createInfo.enabledLayerCount = validationLayers.size();
     createInfo.ppEnabledLayerNames = validationLayers.data();
@@ -137,43 +143,47 @@ static bool createInstance()
     const char* extension = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
     createInfo.ppEnabledExtensionNames = &extension;
 #endif
-    return !VK_FAILED(vkCreateInstance(&createInfo, nullptr, &ctx->instance));
+
+    if (VK_FAILED(vkCreateInstance(&createInfo, nullptr, &instance)))
+    {
+        fail("Failed to create vulkan instance");
+    }
 }
 
 // TODO: better gpu picking
-static bool choosePhysicalDevice() noexcept
+void VkContext::choosePhysicalDevice() noexcept
 {
     uint32_t deviceCount{};
-    vkEnumeratePhysicalDevices(ctx->instance, &deviceCount, nullptr);
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
     if (deviceCount == 0)
     {
-        return false;
+        fail("Failed to find a vulkan physical device");
     }
     std::vector<VkPhysicalDevice> devices(deviceCount);
-    vkEnumeratePhysicalDevices(ctx->instance, &deviceCount, devices.data());
+    vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
     for (const auto& device : devices)
     {
         VkPhysicalDeviceProperties properties{};
         vkGetPhysicalDeviceProperties(device, &properties);
         if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
         {
-            ctx->gpu = device;
-            return true;
+            gpu = device;
+            return;
         }
     }
-    return false;
+    fail("Failed to find a suitable vulkan physical device");
 }
 
-static uint8_t chooseQueueFamily() noexcept
+uint8_t VkContext::chooseQueueFamily() noexcept
 {
     uint32_t queueFamilyCount{};
-    vkGetPhysicalDeviceQueueFamilyProperties(ctx->gpu, &queueFamilyCount, nullptr);
+    vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyCount, nullptr);
     if (queueFamilyCount == 0)
     {
         return false;
     }
     std::vector<VkQueueFamilyProperties> properties(queueFamilyCount);
-    vkGetPhysicalDeviceQueueFamilyProperties(ctx->gpu, &queueFamilyCount, properties.data());
+    vkGetPhysicalDeviceQueueFamilyProperties(gpu, &queueFamilyCount, properties.data());
     for (int i = 0; i < queueFamilyCount; ++i)
     {
         if (properties[i].queueFlags & VK_QUEUE_COMPUTE_BIT)
@@ -184,14 +194,14 @@ static uint8_t chooseQueueFamily() noexcept
     return 255;
 }
 
-static bool createLogicalDevice() noexcept
+void VkContext::createLogicalDevice() noexcept
 {
-    ctx->queueFamilyIndex = chooseQueueFamily();
+    queueFamilyIndex = chooseQueueFamily();
 
     float priority = 1.f;
     VkDeviceQueueCreateInfo queueCreateInfo{};
     queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = ctx->queueFamilyIndex;
+    queueCreateInfo.queueFamilyIndex = queueFamilyIndex;
     queueCreateInfo.queueCount = 1;
     queueCreateInfo.pQueuePriorities = &priority;
 
@@ -213,48 +223,28 @@ static bool createLogicalDevice() noexcept
 #endif
     createInfo.pNext = &features;
 
-    if (VK_FAILED(vkCreateDevice(ctx->gpu, &createInfo, nullptr, &ctx->device)))
+    if (VK_FAILED(vkCreateDevice(gpu, &createInfo, nullptr, &device)))
     {
-        return false;
+        fail("Failed to create vulkan device");
     }
 
-    vkGetDeviceQueue(ctx->device, ctx->queueFamilyIndex, 0, &ctx->queue);
-    return true;
+    vkGetDeviceQueue(device, queueFamilyIndex, 0, &queue);
 }
 
-static bool createCommandPool() noexcept
+void VkContext::createCommandPool() noexcept
 {
     VkCommandPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-    poolInfo.queueFamilyIndex = ctx->queueFamilyIndex;
+    poolInfo.queueFamilyIndex = queueFamilyIndex;
 
-    return !VK_FAILED(vkCreateCommandPool(ctx->device, &poolInfo, nullptr, &ctx->commandPool));
-}
-
-static bool createCommandBuffer() noexcept
-{
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.commandPool = ctx->commandPool;
-    allocInfo.commandBufferCount = 1;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-    if (VK_FAILED(vkAllocateCommandBuffers(ctx->device, &allocInfo, &ctx->commandBuffer)))
+    if (VK_FAILED(vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool)))
     {
-        return false;
+        fail("Failed to create vulkan command pool");
     }
-
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-    vkBeginCommandBuffer(ctx->commandBuffer, &beginInfo);
-
-    return true;
 }
 
-static bool createDescriptorPool(const cli::Parser& args) noexcept
+void VkContext::createDescriptorPool(const cli::Parser& args) noexcept
 {
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -266,10 +256,13 @@ static bool createDescriptorPool(const cli::Parser& args) noexcept
     poolInfo.pPoolSizes = &poolSize;
     poolInfo.maxSets = 1000;
 
-    return !VK_FAILED(vkCreateDescriptorPool(ctx->device, &poolInfo, nullptr, &ctx->descriptorPool));
+    if (VK_FAILED(vkCreateDescriptorPool(device, &poolInfo, nullptr, &descriptorPool)))
+    {
+        fail("Failed to create vulkan descriptor pool");
+    }
 }
 
-static bool createDescriptorSetLayouts() noexcept
+void VkContext::createDescriptorSetLayout() noexcept
 {
     VkDescriptorSetLayoutBinding layoutBinding{};
     layoutBinding.binding = 0;
@@ -282,149 +275,83 @@ static bool createDescriptorSetLayouts() noexcept
     createInfo.bindingCount = 1;
     createInfo.pBindings = &layoutBinding;
 
-    if (VK_FAILED(vkCreateDescriptorSetLayout(ctx->device, &createInfo, nullptr, &ctx->descriptorSetLayout)))
+    if (VK_FAILED(vkCreateDescriptorSetLayout(device, &createInfo, nullptr, &descriptorSetLayout)))
     {
-        return false;
+        fail("Failed to create vulkan descriptor set layout");
     }
-    return true;
 }
 
-static bool initContext(const cli::Parser& args)
+VkContext::VkContext(const cli::Parser& args) noexcept :
+    instance(nullptr), gpu(nullptr), device(nullptr), queueFamilyIndex(255), queue(nullptr), commandPool(nullptr),
+    descriptorPool(nullptr), descriptorSetLayout(nullptr)
 {
-    ctx = std::make_unique<VkContext>();
-    if (!createInstance())
-    {
-        std::cout << "Failed to create vulkan instance\n";
-        return false;
-    }
-
+    createInstance();
 #ifndef NDEBUG
     setupDebugCallback();
 #endif
-
-    if (!choosePhysicalDevice())
-    {
-        std::cout << "Failed to find suitable vulkan physical device\n";
-        return false;
-    }
-
-    if (!createLogicalDevice())
-    {
-        std::cout << "Failed to create vulkan logical device\n";
-        return false;
-    }
-
-    if (!createDescriptorPool(args))
-    {
-        std::cout << "Failed to create vulkan descriptor pool\n";
-        return false;
-    }
-
-    if (!createDescriptorSetLayouts())
-    {
-        std::cout << "Failed to create vulkan descriptor set layouts\n";
-        return false;
-    }
-
-    if (!createCommandPool())
-    {
-        std::cout << "Failed to create vulkan command pool\n";
-        return false;
-    }
-
-    if (!createCommandBuffer())
-    {
-        std::cout << "Failed to create vulkan command buffer\n";
-        return false;
-    }
-
-    return true;
+    choosePhysicalDevice();
+    createLogicalDevice();
+    createCommandPool();
+    createDescriptorPool(args);
+    createDescriptorSetLayout();
 }
 
-bool init(const cli::Parser& args) noexcept
+VkContext::VkContext(VkContext&& other) noexcept :
+    instance(other.instance), gpu(other.gpu), device(other.device), queueFamilyIndex(other.queueFamilyIndex),
+    queue(other.queue), commandPool(other.commandPool), descriptorPool(other.descriptorPool),
+    descriptorSetLayout(other.descriptorSetLayout)
 {
-    if (!initContext(args))
-    {
-        std::cout << "Failed to create vulkan context\n";
-        return false;
-    }
-    return true;
+    other.instance = nullptr;
+    other.gpu = nullptr;
+    other.device = nullptr;
+    other.queueFamilyIndex = 255;
+    other.queue = nullptr;
+    other.commandPool = nullptr;
+    other.descriptorPool = nullptr;
+    other.descriptorSetLayout = nullptr;
 }
 
-void cleanup() noexcept
+void VkContext::operator=(VkContext&& other) noexcept
 {
+    instance = other.instance;
+    gpu = other.gpu;
+    device = other.device;
+    queueFamilyIndex = other.queueFamilyIndex;
+    queue = other.queue;
+    commandPool = other.commandPool;
+    descriptorPool = other.descriptorPool;
+    descriptorSetLayout = other.descriptorSetLayout;
+
+    other.instance = nullptr;
+    other.gpu = nullptr;
+    other.device = nullptr;
+    other.queueFamilyIndex = 255;
+    other.queue = nullptr;
+    other.commandPool = nullptr;
+    other.descriptorPool = nullptr;
+    other.descriptorSetLayout = nullptr;
+}
+
+void initVk(const cli::Parser& args) noexcept
+{
+    ctx = std::make_unique<VkContext>(args);
+}
+
+void cleanupVk() noexcept
+{
+    ctx.reset(nullptr);
+}
+
+VkContext::~VkContext() noexcept
+{
+    vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
+    vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+    vkDestroyCommandPool(device, commandPool, nullptr);
+    vkDestroyDevice(device, nullptr);
 #ifndef NDEBUG
-    destroyDebugUtilsMessengerEXT(ctx->instance, debugMessenger, nullptr);
+    destroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
 #endif
-    vkDestroyCommandPool(ctx->device, ctx->commandPool, nullptr);
-
-    vkDestroyDescriptorSetLayout(ctx->device, ctx->descriptorSetLayout, nullptr);
-
-    vkDestroyDescriptorPool(ctx->device, ctx->descriptorPool, nullptr);
-
-    vkDestroyDevice(ctx->device, nullptr);
-
-    vkDestroyInstance(ctx->instance, nullptr);
-}
-
-[[nodiscard]] VkCommandBuffer beginCommandBuffer() noexcept
-{
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = ctx->commandPool;
-    allocInfo.commandBufferCount = 1;
-
-    VkCommandBuffer commandBuffer;
-    if (VK_FAILED(vkAllocateCommandBuffers(ctx->device, &allocInfo, &commandBuffer)))
-    {
-        std::cout << "Failed to allocate vulkan command buffer\n";
-        return nullptr;
-    }
-
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-    if (VK_FAILED(vkBeginCommandBuffer(commandBuffer, &beginInfo)))
-    {
-        std::cout << "Failed to begin vulkan command buffer\n";
-        return nullptr;
-    }
-
-    return commandBuffer;
-}
-
-[[nodiscard]] bool endCommandBuffer(VkCommandBuffer commandBuffer,
-                                    const std::vector<VkSemaphore>& waitSemaphores,
-                                    const std::vector<VkPipelineStageFlags>& waitStages,
-                                    VkSubmitInfo& submitInfo) noexcept
-{
-    if (VK_FAILED(vkEndCommandBuffer(commandBuffer)))
-    {
-        std::cout << "Failed to end vulkan command buffer\n";
-        return false;
-    }
-
-    VkSemaphoreCreateInfo semaphoreInfo{};
-    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-    VkSemaphore signalSemaphore{};
-    if (VK_FAILED(vkCreateSemaphore(ctx->device, &semaphoreInfo, nullptr, &signalSemaphore)))
-    {
-        std::cout << "Failed to create vulkan semaphore\n";
-        return false;
-    }
-
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
-    submitInfo.waitSemaphoreCount = waitSemaphores.size();
-    submitInfo.pWaitDstStageMask = waitStages.data();
-    submitInfo.pWaitSemaphores = waitSemaphores.data();
-    submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = &signalSemaphore;
-    return true;
+    vkDestroyInstance(instance, nullptr);
 }
 
 bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags propertyFlags, int& memoryType) noexcept

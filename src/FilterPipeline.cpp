@@ -20,26 +20,21 @@ namespace flint
 {
 FilterPipeline::FilterPipeline(const cli::Parser& args) noexcept : m_layout(args)
 {
-    if (!m_layout.valid())
-    {
-        return;
-    }
-    m_valid = true;
 }
 
-void FilterPipeline::cleanup() noexcept
+FilterPipeline::FilterPipeline(FilterPipeline&& other) noexcept : m_layout(std::move(other.m_layout))
 {
-    m_valid = false;
-    m_layout.cleanup();
 }
 
-static bool transitionToTransfer(Texture& tex, SubmissionStack& submissions) noexcept
+void FilterPipeline::operator=(FilterPipeline&& other) noexcept
+{
+    m_layout = std::move(other.m_layout);
+}
+
+static void transitionToTransfer(Texture& tex, SubmissionStack& submissions) noexcept
 {
     int transfer = submissions.get();
-    if (!submissions[transfer].begin(VK_PIPELINE_STAGE_TRANSFER_BIT))
-    {
-        return false;
-    }
+    submissions[transfer].begin(VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     auto barrier = createImageMemoryBarrier();
     barrier.image = tex.image;
@@ -60,16 +55,13 @@ static bool transitionToTransfer(Texture& tex, SubmissionStack& submissions) noe
                          &barrier);
 
     tex.lastSubmissionIndex = transfer;
-    return submissions[transfer].end();
+    submissions[transfer].end();
 }
 
-static bool copyImage(Texture& tex, SubmissionStack& submissions) noexcept
+static void copyImage(Texture& tex, SubmissionStack& submissions) noexcept
 {
     int copyImage = submissions.get();
-    if (!submissions[copyImage].begin())
-    {
-        return false;
-    }
+    submissions[copyImage].begin();
 
     VkBufferImageCopy region{};
     region.bufferOffset = 0;
@@ -93,16 +85,13 @@ static bool copyImage(Texture& tex, SubmissionStack& submissions) noexcept
 
     submissions[copyImage].prereqs.push_back(tex.lastSubmissionIndex);
     tex.lastSubmissionIndex = copyImage;
-    return submissions[copyImage].end();
+    submissions[copyImage].end();
 }
 
-static bool transitionToComputeFromTransfer(Texture& tex, SubmissionStack& submissions) noexcept
+static void transitionToComputeFromTransfer(Texture& tex, SubmissionStack& submissions) noexcept
 {
     int transfer = submissions.get();
-    if (!submissions[transfer].begin())
-    {
-        return false;
-    }
+    submissions[transfer].begin();
 
     auto barrier = createImageMemoryBarrier();
     barrier.image = tex.image;
@@ -124,16 +113,13 @@ static bool transitionToComputeFromTransfer(Texture& tex, SubmissionStack& submi
 
     submissions[transfer].prereqs.push_back(tex.lastSubmissionIndex);
     tex.lastSubmissionIndex = transfer;
-    return submissions[transfer].end();
+    submissions[transfer].end();
 }
 
-static bool transitionToComputeFromUndefined(Texture& tex, SubmissionStack& submissions) noexcept
+static void transitionToComputeFromUndefined(Texture& tex, SubmissionStack& submissions) noexcept
 {
     int transfer = submissions.get();
-    if (!submissions[transfer].begin())
-    {
-        return false;
-    }
+    submissions[transfer].begin();
 
     auto barrier = createImageMemoryBarrier();
     barrier.image = tex.image;
@@ -154,19 +140,16 @@ static bool transitionToComputeFromUndefined(Texture& tex, SubmissionStack& subm
                          &barrier);
 
     tex.lastSubmissionIndex = transfer;
-    return submissions[transfer].end();
+    submissions[transfer].end();
 }
 
-bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
+void FilterPipeline::applyFilter(std::vector<Texture>& texes,
                                  const fpl::FilterSlot& filterSlot,
                                  SubmissionStack& submissions) const noexcept
 {
     int compute = submissions.get();
     const auto& filter = m_layout.instances.find(filterSlot.filterName)->second;
-    if (!(submissions[compute].begin()))
-    {
-        return false;
-    }
+    submissions[compute].begin();
 
     vkCmdBindPipeline(submissions[compute].commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, filter->pipeline);
 
@@ -208,16 +191,13 @@ bool FilterPipeline::applyFilter(std::vector<Texture>& texes,
 
     vkCmdDispatch(submissions[compute].commandBuffer, imageMetadata.groupX, imageMetadata.groupY, 1);
 
-    return submissions[compute].end();
+    submissions[compute].end();
 }
 
-static bool transitionToTransferFromCompute(Texture& tex, SubmissionStack& submissions) noexcept
+static void transitionToTransferFromCompute(Texture& tex, SubmissionStack& submissions) noexcept
 {
     int transfer = submissions.get();
-    if (!submissions[transfer].begin(VK_PIPELINE_STAGE_TRANSFER_BIT))
-    {
-        return false;
-    }
+    submissions[transfer].begin(VK_PIPELINE_STAGE_TRANSFER_BIT);
 
     auto barrier = createImageMemoryBarrier();
     barrier.image = tex.image;
@@ -234,16 +214,13 @@ static bool transitionToTransferFromCompute(Texture& tex, SubmissionStack& submi
 
     submissions[transfer].prereqs.push_back(tex.lastSubmissionIndex);
     tex.lastSubmissionIndex = transfer;
-    return submissions[transfer].end();
+    submissions[transfer].end();
 }
 
-static bool copyImageToBuffer(Texture& tex, SubmissionStack& submissions) noexcept
+static void copyImageToBuffer(Texture& tex, SubmissionStack& submissions) noexcept
 {
     int copyImage = submissions.get();
-    if (!submissions[copyImage].begin())
-    {
-        return false;
-    }
+    submissions[copyImage].begin();
 
     VkBufferImageCopy region{};
     region.bufferOffset = 0;
@@ -267,36 +244,28 @@ static bool copyImageToBuffer(Texture& tex, SubmissionStack& submissions) noexce
 
     submissions[copyImage].prereqs.push_back(tex.lastSubmissionIndex);
     tex.lastSubmissionIndex = copyImage;
-    return submissions[copyImage].end();
+    submissions[copyImage].end();
 }
 
-bool FilterPipeline::record(std::vector<Texture>& texes, SubmissionStack& submissions) const noexcept
+void FilterPipeline::record(std::vector<Texture>& texes, SubmissionStack& submissions) const noexcept
 {
     assert(texes.size() == m_layout.texCount);
-    if (!(transitionToTransfer(texes[0], submissions) &&
-          copyImage(texes[0], submissions) &&
-          transitionToComputeFromTransfer(texes[0], submissions)))
-    {
-        return false;
-    }
+    transitionToTransfer(texes[0], submissions);
+    copyImage(texes[0], submissions);
+    transitionToComputeFromTransfer(texes[0], submissions);
 
     for (int i = 1; i < texes.size(); ++i)
     {
-        if (!transitionToComputeFromUndefined(texes[i], submissions))
-        {
-            return false;
-        }
+        transitionToComputeFromUndefined(texes[i], submissions);
     }
 
     for (int i = 0; i < m_layout.slots.size(); ++i)
     {
-        if (!applyFilter(texes, m_layout.slots[i], submissions))
-        {
-            return false;
-        }
+        applyFilter(texes, m_layout.slots[i], submissions);
     }
 
     Texture& tex = texes[m_layout.slots.back().outputTexture];
-    return transitionToTransferFromCompute(tex, submissions) && copyImageToBuffer(tex, submissions);
+    transitionToTransferFromCompute(tex, submissions);
+    copyImageToBuffer(tex, submissions);
 }
 } // namespace flint

@@ -20,27 +20,30 @@ struct FilterSlot
     std::vector<uint32_t> params{};
 };
 
+// TODO add constructors/destructors
 struct PipelineLayout final
 {
     PipelineLayout(const cli::Parser&) noexcept;
 
-    inline bool valid() const noexcept { return m_valid; }
+    PipelineLayout(PipelineLayout&) = delete;
+    PipelineLayout(PipelineLayout&&) noexcept;
 
-    void cleanup() noexcept;
+    void operator=(PipelineLayout&) = delete;
+    void operator=(PipelineLayout&&) noexcept;
+
+    ~PipelineLayout() = default;
 
     std::unordered_map<std::string, std::unique_ptr<FilterInstance>> instances{};
     std::vector<FilterSlot> slots{};
     int texCount{};
 
 private:
-    bool createFromFilterName(const cli::Parser&) noexcept;
+    void createFromFilterName(const cli::Parser&) noexcept;
 
-    bool loadFplFromSource(const std::filesystem::path&) noexcept;
+    void loadFplFromSource(const std::filesystem::path&) noexcept;
 
-    bool serializeToCache(const std::string&) const noexcept;
+    void serializeToCache(const std::string&) const noexcept;
 
     bool deserializeFromCache(const std::filesystem::path&) noexcept;
-
-    bool m_valid{};
 };
 } // namespace flint::fpl

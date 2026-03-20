@@ -4,12 +4,18 @@
 
 namespace flint
 {
-class SubmissionStack
+class SubmissionStack final
 {
 public:
     inline static constexpr int MAX_SUBMISSIONS = 256;
 
-    SubmissionStack();
+    SubmissionStack() noexcept;
+
+    SubmissionStack(SubmissionStack&) = delete;
+    SubmissionStack(SubmissionStack&&) noexcept;
+
+    void operator=(SubmissionStack&) = delete;
+    void operator=(SubmissionStack&&) noexcept;
 
     int get() noexcept;
 

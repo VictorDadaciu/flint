@@ -5,35 +5,34 @@
 #include "cmdparser.hpp"
 #include "fpl/PipelineLayout.h"
 
-#include <filesystem>
-#include <string>
 #include <vector>
 
 namespace flint
 {
 class FilterInstance;
 
-class FilterPipeline
+class FilterPipeline final
 {
 public:
     FilterPipeline(const cli::Parser&) noexcept;
 
-    bool record(std::vector<Texture>&, SubmissionStack&) const noexcept;
+    FilterPipeline(FilterPipeline&) = delete;
 
-    void cleanup() noexcept;
+    FilterPipeline(FilterPipeline&&) noexcept;
 
-    inline bool valid() const noexcept { return m_valid; }
+    void operator=(FilterPipeline&) = delete;
+
+    void operator=(FilterPipeline&&) noexcept;
+
+    ~FilterPipeline() = default;
+
+    void record(std::vector<Texture>&, SubmissionStack&) const noexcept;
 
     inline int texCount() const noexcept { return m_layout.texCount; }
 
 private:
-    bool createSimplePipeline(const std::string&) noexcept;
-
-    bool createComplexPipeline(const std::filesystem::path&) noexcept;
-
-    bool applyFilter(std::vector<Texture>&, const fpl::FilterSlot&, SubmissionStack&) const noexcept;
+    void applyFilter(std::vector<Texture>&, const fpl::FilterSlot&, SubmissionStack&) const noexcept;
 
     fpl::PipelineLayout m_layout;
-    bool m_valid{};
 };
 } // namespace flint

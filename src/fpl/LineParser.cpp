@@ -1,15 +1,22 @@
 #include "fpl/LineParser.h"
 
+#include "Error.h"
+
 #include <charconv>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
-#include <iostream>
+#include <string>
 
 namespace flint::fpl
 {
 
 constexpr const char* simpleTokens = "(),>:";
+
+std::string fplErrorPrefix(const std::filesystem::path& path, int l, int c) noexcept
+{
+    return path.string() + "(" + std::to_string(l) + ", " + std::to_string(c) + "): ";
+}
 
 static bool isSimpleToken(char c) noexcept
 {
@@ -21,11 +28,6 @@ static bool isSimpleToken(char c) noexcept
         }
     }
     return false;
-}
-
-void printError(const std::filesystem::path& path, int line, int col, const std::string& msg) noexcept
-{
-    std::cerr << "\nfpl ERROR " << path << " (" << line << ", " << col << "): " << msg << "\n";
 }
 
 #if 0
@@ -71,27 +73,23 @@ LineParser::LineParser(const std::filesystem::path& path, std::string_view text,
 {
 }
 
-bool LineParser::lex() noexcept
+void LineParser::lex() noexcept
 {
     while (m_index < m_text.size())
     {
-        Token t{};
-        if (!processToken(t))
-        {
-            return false;
-        }
+        Token t = processToken();
         // successfully reached end of line
-        else if (t.type == TokenType::COUNT)
+        if (t.type == TokenType::COUNT)
         {
-            return true;
+            return;
         }
         m_tokens.push_back(t);
     }
-    return true;
 }
 
-bool LineParser::processToken(Token& t) noexcept
+Token LineParser::processToken() noexcept
 {
+    Token t{};
     do
     {
         char c = m_text[m_index++];
@@ -112,7 +110,7 @@ bool LineParser::processToken(Token& t) noexcept
             }
             else if (hash || end)
             {
-                return true;
+                return t;
             }
 
             t.c = m_index;
@@ -123,22 +121,21 @@ bool LineParser::processToken(Token& t) noexcept
                 {
                 case '(':
                     t.type = TokenType::OPEN_PAR;
-                    return true;
+                    return t;
                 case ')':
                     t.type = TokenType::CLOSED_PAR;
-                    return true;
+                    return t;
                 case '>':
                     t.type = TokenType::ARROW;
-                    return true;
+                    return t;
                 case ',':
                     t.type = TokenType::COMMA;
-                    return true;
+                    return t;
                 case ':':
                     t.type = TokenType::COLON;
-                    return true;
+                    return t;
                 default:
-                    printError(m_path, m_number, t.c, "Invalid token, this shouldn't be happening");
-                    return false;
+                    fail(fplErrorPrefix(m_path, m_number, t.c) + "Invalid token, this shouldn't be happening");
                 }
             }
             else if (under || letter)
@@ -168,18 +165,18 @@ bool LineParser::processToken(Token& t) noexcept
                 {
                 case TokenType::STRING:
                     t.val = token;
-                    return true;
+                    return t;
                 case TokenType::INT:
                 {
                     uint32_t i;
                     auto res = std::from_chars(token.data(), token.data() + token.size(), i);
                     if (res.ec == std::errc::invalid_argument)
                     {
-                        printError(m_path, m_number, t.c, "Invalid syntax, token couldn't be converted to integer");
-                        return false;
+                        fail(fplErrorPrefix(m_path, m_number, t.c) +
+                             "Invalid syntax, token couldn't be converted to integer");
                     }
                     t.val = i;
-                    return true;
+                    return t;
                 }
                 case TokenType::FLOAT:
                 {
@@ -187,33 +184,28 @@ bool LineParser::processToken(Token& t) noexcept
                     auto res = std::from_chars(token.data(), token.data() + token.size(), f);
                     if (res.ec == std::errc::invalid_argument)
                     {
-                        printError(
-                            m_path, m_number, t.c, "Invalid syntax, token couldn't be converted to floating-point");
-                        return false;
+                        fail(fplErrorPrefix(m_path, m_number, t.c) +
+                             "Invalid syntax, token couldn't be converted to floating-point");
                     }
                     t.val = f;
-                    return true;
+                    return t;
                 }
                 default:
-                    printError(m_path, m_number, t.c, "Invalid token, this shouldn't be happening");
-                    return false;
+                    fail(fplErrorPrefix(m_path, m_number, t.c) + "Invalid token, this shouldn't be happening");
                 }
             }
             else if (dash)
             {
-                printError(
-                    m_path, m_number, t.c, "Invalid syntax, dashes can only be found at the beginning of numbers");
-                return false;
+                fail(fplErrorPrefix(m_path, m_number, t.c) +
+                     "Invalid syntax, dashes can only be found at the beginning of numbers");
             }
             else if (t.type != TokenType::STRING && letter)
             {
-                printError(m_path, m_number, t.c, "Invalid syntax, numbers can't contain letters");
-                return false;
+                fail(fplErrorPrefix(m_path, m_number, t.c) + "Invalid syntax, numbers can't contain letters");
             }
             else if (t.type != TokenType::STRING && under)
             {
-                printError(m_path, m_number, t.c, "Invalid syntax, numbers can't contain underscores");
-                return false;
+                fail(fplErrorPrefix(m_path, m_number, t.c) + "Invalid syntax, numbers can't contain underscores");
             }
             else if (dot)
             {
@@ -224,14 +216,13 @@ bool LineParser::processToken(Token& t) noexcept
                 }
                 else if (t.type == TokenType::FLOAT)
                 {
-                    printError(
-                        m_path, m_number, t.c, "Invalid syntax, numbers can't contain more than one dot character");
-                    return false;
+                    fail(fplErrorPrefix(m_path, m_number, t.c) +
+                         "Invalid syntax, numbers can't contain more than one dot character");
                 }
             }
         }
     } while (m_index <= m_text.size());
-    return true;
+    return t;
 }
 
 bool LineParser::expect(const std::vector<TokenType>& ts) noexcept
@@ -251,15 +242,12 @@ bool LineParser::expect(const std::vector<TokenType>& ts) noexcept
     return true;
 }
 
-bool LineParser::processInputsSection(LineInfo& info) noexcept
+void LineParser::processInputsSection(LineInfo& info) noexcept
 {
     if (!expect({TokenType::STRING}))
     {
-        printError(m_path,
-                   m_number,
-                   m_tokens[m_index].c,
-                   "Invalid syntax, line should start with least one input texture name");
-        return false;
+        fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) +
+             "Invalid syntax, line should start with least one input texture name");
     }
     info.inputs.push_back(m_tokens[m_index]);
     ++m_index;
@@ -273,20 +261,17 @@ bool LineParser::processInputsSection(LineInfo& info) noexcept
 
     if (!expect({TokenType::ARROW}))
     {
-        printError(
-            m_path, m_number, m_tokens[m_index].c, "Invalid syntax, arrow character (>) expected after input section");
-        return false;
+        fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) +
+             "Invalid syntax, arrow character (>) expected after input section");
     }
     ++m_index;
-    return true;
 }
 
-bool LineParser::processFilterSection(LineInfo& info) noexcept
+void LineParser::processFilterSection(LineInfo& info) noexcept
 {
     if (!expect({TokenType::STRING, TokenType::OPEN_PAR}))
     {
-        printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, filter call expected");
-        return false;
+        fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) + "Invalid syntax, filter call expected");
     }
     info.filterType = m_tokens[m_index];
     m_index += 2;
@@ -301,8 +286,7 @@ bool LineParser::processFilterSection(LineInfo& info) noexcept
         }
         else
         {
-            printError(m_path, m_number, m_tokens[m_index].c, "Invalid argument, expected number");
-            return false;
+            fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) + "Invalid argument, expected number");
         }
         ++m_index;
         if (expect({TokenType::COMMA}))
@@ -317,8 +301,8 @@ bool LineParser::processFilterSection(LineInfo& info) noexcept
 
     if (!expect({TokenType::CLOSED_PAR}))
     {
-        printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected ')' to end filter argument list");
-        return false;
+        fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) +
+             "Invalid syntax, expected ')' to end filter argument list");
     }
     ++m_index;
 
@@ -330,42 +314,36 @@ bool LineParser::processFilterSection(LineInfo& info) noexcept
 
     if (!expect({TokenType::ARROW}))
     {
-        printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, arrow to output section expected");
-        return false;
+        fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) +
+             "Invalid syntax, arrow to output section expected");
     }
     ++m_index;
-    return true;
 }
 
-bool LineParser::processOutputSection(LineInfo& info) noexcept
+void LineParser::processOutputSection(LineInfo& info) noexcept
 {
     if (!expect({TokenType::STRING}))
     {
-        printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected an output texture name");
-        return false;
+        fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) + "Invalid syntax, expected an output texture name");
     }
     info.output = m_tokens[m_index];
     ++m_index;
 
     if (m_index < m_tokens.size())
     {
-        printError(m_path, m_number, m_tokens[m_index].c, "Invalid syntax, expected only a single output texture name");
-        return false;
+        fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) +
+             "Invalid syntax, expected only a single output texture name");
     }
-    return true;
 }
 
-bool LineParser::parse(LineInfo& info) noexcept
+LineInfo LineParser::parse() noexcept
 {
-    info.number = m_number;
-    if (!lex())
-    {
-        return false;
-    }
+    LineInfo info{.number = m_number};
+    lex();
     if (m_tokens.empty())
     {
         info.empty = true;
-        return true;
+        return info;
     }
 
 #if 0
@@ -377,6 +355,9 @@ bool LineParser::parse(LineInfo& info) noexcept
 #endif
 
     m_index = 0;
-    return processInputsSection(info) && processFilterSection(info) && processOutputSection(info);
+    processInputsSection(info);
+    processFilterSection(info);
+    processOutputSection(info);
+    return info;
 }
 } // namespace flint::fpl

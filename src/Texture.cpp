@@ -1,9 +1,10 @@
 #include "Texture.h"
 
+#include "Error.h"
 #include "StagingBuffer.h"
 #include "VkContext.h"
 
-#include <iostream>
+#include <filesystem>
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -14,32 +15,30 @@ namespace flint
 {
 ImageMetadata imageMetadata{};
 
-unsigned char* loadImage(const std::string& path) noexcept
+unsigned char* loadImage(const std::filesystem::path& path) noexcept
 {
     int channels{};
     unsigned char* raw =
         stbi_load(path.c_str(), &imageMetadata.width, &imageMetadata.height, &channels, STBI_rgb_alpha);
     if (!raw)
     {
-        std::cout << "Failed to load image at path " << path << ": " << stbi_failure_reason() << "\n";
-        return nullptr;
+        fail("Failed to load image at path '" + path.string() + "': " + stbi_failure_reason());
     }
     imageMetadata.groupX =
         imageMetadata.width / LOCAL_WORK_SIZE + 1 * (int)((bool)(imageMetadata.width % LOCAL_WORK_SIZE));
     imageMetadata.groupY =
         imageMetadata.height / LOCAL_WORK_SIZE + 1 * (int)((bool)(imageMetadata.height % LOCAL_WORK_SIZE));
-
     return raw;
 }
 
-void writeImage(const std::string& path) noexcept
+void writeImage(const std::filesystem::path& path) noexcept
 {
     unsigned char* raw = stagingBuffer.getAsRawImage();
     stbi_write_jpg(path.c_str(), imageMetadata.width, imageMetadata.height, 4, raw, 100);
     stbi_image_free(raw);
 }
 
-bool Texture::createImage() noexcept
+void Texture::createImage() noexcept
 {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -58,8 +57,7 @@ bool Texture::createImage() noexcept
 
     if (VK_FAILED(vkCreateImage(ctx->device, &imageInfo, nullptr, &image)))
     {
-        std::cout << "Failed to create vulkan image\n";
-        return false;
+        fail("Failed to create vulkan image");
     }
 
     VkMemoryRequirements memRequirements{};
@@ -68,8 +66,7 @@ bool Texture::createImage() noexcept
     int memoryTypeIndex{};
     if (!findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, memoryTypeIndex))
     {
-        std::cout << "Failed to find suitable memory for vulkan image\n";
-        return false;
+        fail("Failed to find suitable memory for vulkan image");
     }
 
     VkMemoryAllocateInfo allocInfo{};
@@ -79,15 +76,13 @@ bool Texture::createImage() noexcept
 
     if (VK_FAILED(vkAllocateMemory(ctx->device, &allocInfo, nullptr, &memory)))
     {
-        std::cout << "Failed to allocate memory on device for vulkan image\n";
-        return false;
+        fail("Failed to allocate memory on device for vulkan image");
     }
 
     vkBindImageMemory(ctx->device, image, memory, 0);
-    return true;
 }
 
-bool Texture::createImageView() noexcept
+void Texture::createImageView() noexcept
 {
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -102,13 +97,11 @@ bool Texture::createImageView() noexcept
 
     if (VK_FAILED(vkCreateImageView(ctx->device, &viewInfo, nullptr, &imageView)))
     {
-        std::cout << "Failed to create vulkan image view\n";
-        return false;
+        fail("Failed to create vulkan image view");
     }
-    return true;
 }
 
-bool Texture::createDescriptorSet() noexcept
+void Texture::createDescriptorSet() noexcept
 {
     VkDescriptorSetAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -118,8 +111,7 @@ bool Texture::createDescriptorSet() noexcept
 
     if (VK_FAILED(vkAllocateDescriptorSets(ctx->device, &allocInfo, &descriptorSet)))
     {
-        std::cout << "Failed to allocate descriptor set\n";
-        return false;
+        fail("Failed to allocate descriptor set");
     }
 
     VkDescriptorImageInfo imageInfo{};
@@ -136,17 +128,43 @@ bool Texture::createDescriptorSet() noexcept
     write.dstSet = descriptorSet;
 
     vkUpdateDescriptorSets(ctx->device, 1, &write, 0, nullptr);
-    return true;
 }
 
-Texture::Texture() noexcept
+Texture::Texture(Texture&& other) noexcept :
+    image(other.image), imageView(other.imageView), memory(other.memory), descriptorSet(other.descriptorSet),
+    lastSubmissionIndex(other.lastSubmissionIndex)
 {
-    m_valid = createImage() && createImageView() && createDescriptorSet();
+    other.image = nullptr;
+    other.imageView = nullptr;
+    other.memory = nullptr;
+    other.descriptorSet = nullptr;
+    other.lastSubmissionIndex = -1;
 }
 
-void Texture::cleanup() noexcept
+void Texture::operator=(Texture&& other) noexcept
 {
-    m_valid = false;
+    image = other.image;
+    imageView = other.imageView;
+    memory = other.memory;
+    descriptorSet = other.descriptorSet;
+    lastSubmissionIndex = other.lastSubmissionIndex;
+    other.image = nullptr;
+    other.imageView = nullptr;
+    other.memory = nullptr;
+    other.descriptorSet = nullptr;
+    other.lastSubmissionIndex = -1;
+}
+
+Texture::Texture() noexcept :
+    image(nullptr), imageView(nullptr), memory(nullptr), descriptorSet(nullptr), lastSubmissionIndex(-1)
+{
+    createImage();
+    createImageView();
+    createDescriptorSet();
+}
+
+Texture::~Texture() noexcept
+{
     vkDestroyImageView(ctx->device, imageView, nullptr);
     vkDestroyImage(ctx->device, image, nullptr);
     vkFreeMemory(ctx->device, memory, nullptr);

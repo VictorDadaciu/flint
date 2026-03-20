@@ -8,7 +8,7 @@
 
 namespace flint::fpl
 {
-void printError(const std::filesystem::path&, int, int, const std::string&) noexcept;
+std::string fplErrorPrefix(const std::filesystem::path&, int, int) noexcept;
 
 enum class TokenType
 {
@@ -48,18 +48,18 @@ class LineParser final
 public:
     LineParser(const std::filesystem::path&, std::string_view, int) noexcept;
 
-    bool parse(LineInfo&) noexcept;
+    LineInfo parse() noexcept;
 
 private:
-    bool lex() noexcept;
+    void lex() noexcept;
 
-    bool processToken(Token&) noexcept;
+    Token processToken() noexcept;
 
     bool expect(const std::vector<TokenType>&) noexcept;
 
-    bool processInputsSection(LineInfo&) noexcept;
-    bool processFilterSection(LineInfo&) noexcept;
-    bool processOutputSection(LineInfo&) noexcept;
+    void processInputsSection(LineInfo&) noexcept;
+    void processFilterSection(LineInfo&) noexcept;
+    void processOutputSection(LineInfo&) noexcept;
 
     std::filesystem::path m_path;
     std::string_view m_text;

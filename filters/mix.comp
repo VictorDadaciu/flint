@@ -25,7 +25,7 @@ void main()
         return;
     }
     float mix = clamp(params.where, 0.0, 1.0);
-    uvec3 img1 = uvec3(vec3(imageLoad(input1, coords).rgb) * mix);
-    uvec3 img2 = uvec3(vec3(imageLoad(input2, coords).rgb) * (1.0 - mix));
+    uvec3 img1 = uvec3(vec3(imageLoad(input1, coords).rgb) * (1.0 - mix));
+    uvec3 img2 = uvec3(vec3(imageLoad(input2, coords).rgb) * mix);
     imageStore(outputImg, coords, uvec4(img1 + img2, 255));
 }

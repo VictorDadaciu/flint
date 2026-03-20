@@ -1,5 +1,7 @@
 #include "Utils.h"
 
+#include "Error.h"
+
 #include <fstream>
 #include <iostream>
 
@@ -10,7 +12,7 @@ std::vector<char> readEntireFile(const std::filesystem::path& path) noexcept
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
     {
-        std::cout << "Failed to open file for read " << path << "\n";
+        warn("Failed to open file '" + path.string() + "' for read");
         return {};
     }
 

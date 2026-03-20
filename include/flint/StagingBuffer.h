@@ -4,7 +4,7 @@
 
 namespace flint
 {
-extern struct StagingBuffer
+extern struct StagingBuffer final
 {
     StagingBuffer() = default;
 

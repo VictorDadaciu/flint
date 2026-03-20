@@ -6,8 +6,23 @@
 
 namespace flint
 {
-SubmissionStack::SubmissionStack() : m_data(new SubmissionInfo[SubmissionStack::MAX_SUBMISSIONS])
+SubmissionStack::SubmissionStack() noexcept : m_data(new SubmissionInfo[MAX_SUBMISSIONS])
 {
+}
+
+SubmissionStack::SubmissionStack(SubmissionStack&& other) noexcept : m_data(other.m_data), m_size((other.m_size))
+{
+    other.m_data = nullptr;
+    other.m_size = 0;
+}
+
+void SubmissionStack::operator=(SubmissionStack&& other) noexcept
+{
+    clear();
+    m_data = other.m_data;
+    m_size = other.m_size;
+    other.m_data = nullptr;
+    other.m_size = 0;
 }
 
 int SubmissionStack::get() noexcept
@@ -18,16 +33,13 @@ int SubmissionStack::get() noexcept
 
 void SubmissionStack::clear() noexcept
 {
-    for (int i = 0; i < m_size; ++i)
-    {
-        m_data[i].cleanup();
-    }
+    delete[] m_data;
+    m_data = new SubmissionInfo[MAX_SUBMISSIONS];
     m_size = 0;
 }
 
 SubmissionStack::~SubmissionStack()
 {
     clear();
-    delete[] m_data;
 }
 } // namespace flint

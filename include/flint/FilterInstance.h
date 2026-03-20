@@ -11,9 +11,15 @@ class FilterInstance
 public:
     FilterInstance(const std::string&) noexcept;
 
-    void cleanup() noexcept;
+    FilterInstance(FilterInstance&) = delete;
 
-    inline bool valid() const noexcept { return m_valid; }
+    FilterInstance(FilterInstance&&) noexcept;
+
+    void operator=(FilterInstance&) = delete;
+
+    void operator=(FilterInstance&&) noexcept;
+
+    ~FilterInstance() noexcept;
 
     VkPipeline pipeline{};
     VkPipelineLayout pipelineLayout{};
@@ -28,7 +34,5 @@ private:
     bool serializeToCache(const std::string&) const noexcept;
 
     bool deserializeFromCache(const std::string&) noexcept;
-
-    bool m_valid{};
 };
 } // namespace flint

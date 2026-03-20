@@ -1,18 +1,18 @@
 #include "SubmissionInfo.h"
 
+#include "Error.h"
 #include "VkContext.h"
 
-#include <iostream>
 #include <vulkan/vulkan_core.h>
 
 namespace flint
 {
-void SubmissionInfo::cleanup() noexcept
+SubmissionInfo::~SubmissionInfo() noexcept
 {
     vkDestroySemaphore(ctx->device, signal, nullptr);
 }
 
-bool SubmissionInfo::begin(VkPipelineStageFlags flags) noexcept
+void SubmissionInfo::begin(VkPipelineStageFlags flags) noexcept
 {
     stage = flags;
 
@@ -27,8 +27,7 @@ bool SubmissionInfo::begin(VkPipelineStageFlags flags) noexcept
 
     if (VK_FAILED(vkCreateSemaphore(ctx->device, &semaphoreInfo, nullptr, &signal)))
     {
-        std::cout << "Failed to create vulkan semaphore\n";
-        return false;
+        fail("Failed to create vulkan command buffer");
     }
 
     VkCommandBufferAllocateInfo allocInfo{};
@@ -39,8 +38,7 @@ bool SubmissionInfo::begin(VkPipelineStageFlags flags) noexcept
 
     if (VK_FAILED(vkAllocateCommandBuffers(ctx->device, &allocInfo, &commandBuffer)))
     {
-        std::cout << "Failed to allocate vulkan command buffer\n";
-        return false;
+        fail("Failed to allocate vulkan command buffer");
     }
 
     VkCommandBufferBeginInfo beginInfo{};
@@ -49,19 +47,15 @@ bool SubmissionInfo::begin(VkPipelineStageFlags flags) noexcept
 
     if (VK_FAILED(vkBeginCommandBuffer(commandBuffer, &beginInfo)))
     {
-        std::cout << "Failed to begin vulkan command buffer\n";
-        return false;
+        fail("Failed to create begin command buffer");
     }
-    return true;
 }
 
-bool SubmissionInfo::end() noexcept
+void SubmissionInfo::end() noexcept
 {
     if (VK_FAILED(vkEndCommandBuffer(commandBuffer)))
     {
-        std::cout << "Failed to end vulkan command buffer\n";
-        return false;
+        fail("Failed to end vulkan command buffer");
     }
-    return true;
 }
 } // namespace flint
