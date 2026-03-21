@@ -8,7 +8,8 @@ layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 void main()
 {
-    ivec2 size = imageSize(inputImg);
     ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
-    imageStore(outputImg, coords, imageLoad(inputImg, ivec2(size.x - coords.x, coords.y)));
+    uvec3 pixel = imageLoad(inputImg, coords).rgb;
+    int lum = int(round(0.21 * float(pixel.r) + 0.77 * float(pixel.g) + 0.07 * float(pixel.b)));
+    imageStore(outputImg, coords, uvec4(uvec3(lum), 255));
 }

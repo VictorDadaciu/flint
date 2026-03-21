@@ -15,13 +15,7 @@ layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 void main()
 {
-    ivec2 size = imageSize(inputImg);
     ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
-    bool outOfBounds = coords.x >= size.x || coords.y >= size.y;
-    if (outOfBounds)
-    {
-        return;
-    }
 
     uvec3 acc = uvec3(0.0);
     for (int i = -params.radius; i <= params.radius; ++i)

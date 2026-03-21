@@ -30,44 +30,6 @@ static bool isSimpleToken(char c) noexcept
     return false;
 }
 
-#if 0
-static std::string tokenTypeToStr(TokenType type) noexcept
-{
-    switch (type)
-    {
-    case TokenType::ARROW:
-        return "ARROW";
-    case TokenType::OPEN_PAR:
-        return "OPEN_PAR";
-    case TokenType::CLOSED_PAR:
-        return "CLOSED_PAR";
-    case TokenType::COMMA:
-        return "COMMA";
-    case TokenType::COLON:
-        return "COLON";
-    case TokenType::INT:
-        return "INT";
-    case TokenType::FLOAT:
-        return "FLOAT";
-    case TokenType::STRING:
-        return "STRING";
-    case TokenType::COUNT:
-        return "COUNT";
-    }
-}
-
-static void printToken(int lineNumber, const Token& token) noexcept
-{
-    std::cout << "{ " << "(" << lineNumber << ", " << token.c << "), " << tokenTypeToStr(token.type) << ", ";
-    std::visit(
-        [](const auto& value)
-        {
-            std::cout << "'" << value << "' } \n";
-        },
-        token.val);
-}
-#endif
-
 LineParser::LineParser(const std::filesystem::path& path, std::string_view text, int number) noexcept :
     m_path(path), m_text(text), m_number(number)
 {
@@ -269,42 +231,74 @@ void LineParser::processInputsSection(LineInfo& info) noexcept
 
 void LineParser::processFilterSection(LineInfo& info) noexcept
 {
-    if (!expect({TokenType::STRING, TokenType::OPEN_PAR}))
+    if (!expect({TokenType::STRING}))
     {
         fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) + "Invalid syntax, filter call expected");
     }
     info.filterType = m_tokens[m_index];
-    m_index += 2;
+    ++m_index;
 
-    while (expect({TokenType::STRING, TokenType::COLON}))
+    if (expect({TokenType::OPEN_PAR}))
     {
-        std::string_view paramName = std::get<std::string_view>(m_tokens[m_index].val);
-        m_index += 2;
-        if (expect({TokenType::INT}) || expect({TokenType::FLOAT}))
+        ++m_index;
+        if (expect({TokenType::STRING}))
         {
-            info.params[paramName] = m_tokens[m_index];
+            info.namedParams = true;
+            while (expect({TokenType::STRING, TokenType::COLON}))
+            {
+                std::string paramName{std::get<std::string_view>(m_tokens[m_index].val)};
+                m_index += 2;
+                if (expect({TokenType::INT}) || expect({TokenType::FLOAT}))
+                {
+                    info.params[paramName] = m_tokens[m_index];
+                }
+                else
+                {
+                    fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) + "Invalid argument, expected number");
+                }
+                ++m_index;
+                if (expect({TokenType::COMMA}))
+                {
+                    ++m_index;
+                }
+                else
+                {
+                    break;
+                }
+            }
         }
-        else
+        else if (expect({TokenType::INT}) || expect({TokenType::FLOAT}))
         {
-            fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) + "Invalid argument, expected number");
+            int index = 0;
+            while (!expect({TokenType::CLOSED_PAR}))
+            {
+                if (expect({TokenType::INT}) || expect({TokenType::FLOAT}))
+                {
+                    info.params[std::to_string(index)] = m_tokens[m_index];
+                }
+                else
+                {
+                    fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) + "Invalid argument, expected number");
+                }
+                ++m_index;
+                if (expect({TokenType::COMMA}))
+                {
+                    ++m_index;
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        if (!expect({TokenType::CLOSED_PAR}))
+        {
+            fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) +
+                 "Invalid syntax, expected ')' to end filter argument list");
         }
         ++m_index;
-        if (expect({TokenType::COMMA}))
-        {
-            ++m_index;
-        }
-        else
-        {
-            break;
-        }
     }
-
-    if (!expect({TokenType::CLOSED_PAR}))
-    {
-        fail(fplErrorPrefix(m_path, m_number, m_tokens[m_index].c) +
-             "Invalid syntax, expected ')' to end filter argument list");
-    }
-    ++m_index;
 
     if (expect({TokenType::INT}))
     {
@@ -338,21 +332,13 @@ void LineParser::processOutputSection(LineInfo& info) noexcept
 
 LineInfo LineParser::parse() noexcept
 {
-    LineInfo info{.number = m_number};
+    LineInfo info{};
     lex();
     if (m_tokens.empty())
     {
         info.empty = true;
         return info;
     }
-
-#if 0
-    for (const auto& t : m_tokens)
-    {
-        printToken(info.number, t);
-    }
-    std::cout << "\n";
-#endif
 
     m_index = 0;
     processInputsSection(info);

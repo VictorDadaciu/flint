@@ -124,7 +124,6 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
     std::string text;
     while (std::getline(f, text))
     {
-        LineParser lp(path, text, ++line);
         LineInfo info = LineParser(path, text, ++line).parse();
         if (info.empty)
         {
@@ -132,27 +131,6 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
         }
 
         FilterSlot filterSlot{};
-        {
-            for (const auto& in : info.inputs)
-            {
-                std::string_view inputName = std::get<std::string_view>(in.val);
-                if (inputName == "output")
-                {
-                    fail(fplErrorPrefix(path, line, in.c) +
-                         "Invalid syntax, reserved keyword 'output' can't be an input");
-                }
-                int texIndex = findTexPlaceholder(inputName, texPlaceholders);
-                if (texIndex < 0)
-                {
-                    fail(fplErrorPrefix(path, line, in.c) +
-                         "Invalid syntax, '" +
-                         std::string(inputName) +
-                         "' requested as input, but has not been created yet");
-                }
-                filterSlot.inputs.push_back(texIndex);
-            }
-        }
-
         {
             filterSlot.filterName = std::string(std::get<std::string_view>(info.filterType.val));
             const auto& it = instances.find(filterSlot.filterName);
@@ -182,7 +160,8 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
             {
                 const std::string& paramName = std::get<0>(param);
                 bool isFloat = std::get<1>(param);
-                const auto& it = info.params.find(paramName);
+
+                const auto& it = info.params.find(info.namedParams ? paramName : std::to_string(i));
                 if (it == info.params.end())
                 {
                     fail(fplErrorPrefix(path, line, info.filterType.c) +
@@ -210,6 +189,38 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
                          "' is expected to be of type " +
                          (isFloat ? "float" : "int"));
                 }
+            }
+        }
+
+        {
+            if (info.inputs.size() != instance->inputCount)
+            {
+                fail(fplErrorPrefix(path, line, info.inputs[0].c) +
+                     "Invalid syntax, filter '" +
+                     filterSlot.filterName +
+                     "' expects " +
+                     std::to_string(instance->inputCount) +
+                     " inputs, but got " +
+                     std::to_string(info.inputs.size()));
+            }
+
+            for (const auto& in : info.inputs)
+            {
+                std::string_view inputName = std::get<std::string_view>(in.val);
+                if (inputName == "output")
+                {
+                    fail(fplErrorPrefix(path, line, in.c) +
+                         "Invalid syntax, reserved keyword 'output' can't be an input");
+                }
+                int texIndex = findTexPlaceholder(inputName, texPlaceholders);
+                if (texIndex < 0)
+                {
+                    fail(fplErrorPrefix(path, line, in.c) +
+                         "Invalid syntax, '" +
+                         std::string(inputName) +
+                         "' requested as input, but has not been created yet");
+                }
+                filterSlot.inputs.push_back(texIndex);
             }
         }
 

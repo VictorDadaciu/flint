@@ -36,10 +36,10 @@ struct LineInfo final
 {
     std::vector<Token> inputs{};
     Token filterType{};
-    Token output{};
-    std::map<std::string_view, Token> params{};
+    std::map<std::string, Token> params{};
+    bool namedParams{};
     Token iterations{};
-    int number{};
+    Token output{};
     bool empty{};
 };
 

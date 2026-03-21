@@ -17,13 +17,8 @@ layout(local_size_x = 32, local_size_y = 32, local_size_z = 1) in;
 
 void main()
 {
-    ivec2 size = imageSize(outputImg);
     ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
-    bool outOfBounds = coords.x >= size.x || coords.y >= size.y;
-    if (outOfBounds)
-    {
-        return;
-    }
+
     float mix = clamp(params.where, 0.0, 1.0);
     uvec3 img1 = uvec3(vec3(imageLoad(input1, coords).rgb) * (1.0 - mix));
     uvec3 img2 = uvec3(vec3(imageLoad(input2, coords).rgb) * mix);

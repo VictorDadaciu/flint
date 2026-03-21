@@ -10,10 +10,5 @@ void main()
 {
     ivec2 size = imageSize(inputImg);
     ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
-    bool outOfBounds = coords.x >= size.x || coords.y >= size.y;
-    if (outOfBounds)
-    {
-        return;
-    }
     imageStore(outputImg, coords, imageLoad(inputImg, ivec2(coords.x, size.y - coords.y)));
 }
