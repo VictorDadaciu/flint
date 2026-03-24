@@ -186,7 +186,7 @@ compile(const shaderc::Compiler& compiler, const std::string& name, const std::s
 
 VkShaderModule FilterInstance::compileFromSource(const std::string& filterName) noexcept
 {
-    std::cout << "Compiling " << filterName << "\n";
+    std::cout << "Compiling '" << filterName << "'\n";
     std::filesystem::create_directory(cachePath);
     shaderc::Compiler compiler{};
     std::string src;
@@ -281,7 +281,7 @@ bool FilterInstance::serializeToCache(const std::string& filterName) const noexc
     f.write(reinterpret_cast<const char*>(toWrite.data()), toWrite.size() * sizeof(uint32_t));
     f.close();
 
-    std::cout << "Caching filter '" << filterName << "' finished successfully\n";
+    std::cout << "  Caching filter '" << filterName << "' finished successfully\n";
     return true;
 }
 
@@ -311,7 +311,7 @@ bool FilterInstance::deserializeFromCache(const std::string& filterName) noexcep
     }
     f.close();
 
-    std::cout << "Deserializing finished successfully\n";
+    std::cout << "  Deserialization finished successfully\n";
     return true;
 }
 } // namespace flint

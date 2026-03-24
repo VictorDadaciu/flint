@@ -9,9 +9,60 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan_core.h>
+
+static std::filesystem::path chooseOutputPath(const cli::Parser& args) noexcept
+{
+    std::string outputString = args.get<std::string>("o");
+    std::filesystem::path outputPath{outputString};
+    bool isDir = !outputPath.has_extension();
+
+    std::filesystem::path dirPath = isDir ? outputPath : outputPath.parent_path();
+    if (!outputString.empty() && !(std::filesystem::exists(dirPath) || std::filesystem::create_directories(dirPath)))
+    {
+        flint::fail("Could not create directories requested by output path arg " + outputPath.string());
+    }
+
+    if (outputString.empty() || isDir)
+    {
+        std::filesystem::path inputPath = args.get<std::string>("i");
+        if (outputString.empty())
+        {
+            outputPath = inputPath;
+        }
+        std::string filterName = args.get<std::string>("f");
+        if (filterName.ends_with(".fpl"))
+        {
+            filterName = std::filesystem::path(filterName).stem().string();
+        }
+
+        std::string newFilename = inputPath.stem().string() + '_' + filterName + inputPath.extension().string();
+        // case when dir is given without trailing slash on linux, the "stem" is treated as both a directory and a
+        // filename for some reason
+        if (std::filesystem::is_directory(outputPath) && outputPath.has_stem())
+        {
+            outputPath /= newFilename;
+        }
+        else
+        {
+            outputPath.replace_filename(newFilename);
+        }
+    }
+
+    if (args.get<bool>("no-overwrite"))
+    {
+        std::string baseStem{outputPath.stem().string()};
+        int index = 1;
+        while (std::filesystem::exists(outputPath))
+        {
+            outputPath.replace_filename(baseStem + std::to_string(index++) + outputPath.extension().string());
+        }
+    }
+    return outputPath;
+}
 
 static void applyFilters(const cli::Parser& args) noexcept
 {
@@ -73,7 +124,7 @@ static void applyFilters(const cli::Parser& args) noexcept
 
     vkDestroyFence(flint::ctx->device, fence, nullptr);
 
-    flint::writeImage("/home/victordadaciu/workspace/flint/images/result.jpg");
+    flint::writeImage(chooseOutputPath(args));
 }
 
 [[nodiscard]] static cli::Parser parseArgs(int argc, const char* argv[]) noexcept
@@ -83,6 +134,9 @@ static void applyFilters(const cli::Parser& args) noexcept
     args.set_optional<std::string>(
         "i", "image", "/home/victordadaciu/workspace/flint/images/vault_boy.jpg", "Valid path to an image");
     args.set_optional<std::string>("f", "filter", "", "Valid filter name");
+    args.set_optional<std::string>("o", "output", "", "Valid output path");
+    args.set_optional<bool>(
+        "no-overwrite", "no-overwrite", false, "Do not overwrite existing output file with same name");
     args.set_optional<uint32_t>("radius", "radius", 3, "Parameter");
     args.run_and_exit_if_error();
 
@@ -90,9 +144,10 @@ static void applyFilters(const cli::Parser& args) noexcept
     {
         flint::fail("No image path provided");
     }
-    if (args.get<std::string>("f").empty())
+    std::string filter = args.get<std::string>("f");
+    if (filter.empty() || (filter.ends_with(".fpl") && !std::filesystem::exists(filter)))
     {
-        flint::fail("No filter or filter path provided");
+        flint::fail("Invalid filter or filter path provided");
     }
     return args;
 }

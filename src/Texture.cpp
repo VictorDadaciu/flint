@@ -33,6 +33,7 @@ unsigned char* loadImage(const std::filesystem::path& path) noexcept
 
 void writeImage(const std::filesystem::path& path) noexcept
 {
+    std::cout << "Outputting final image to " << path << "\n";
     unsigned char* raw = stagingBuffer.getAsRawImage();
     stbi_write_jpg(path.c_str(), imageMetadata.width, imageMetadata.height, 4, raw, 100);
     stbi_image_free(raw);

@@ -41,9 +41,5 @@ private:
     void createFromFilterName(const cli::Parser&) noexcept;
 
     void loadFplFromSource(const std::filesystem::path&) noexcept;
-
-    void serializeToCache(const std::string&) const noexcept;
-
-    bool deserializeFromCache(const std::filesystem::path&) noexcept;
 };
 } // namespace flint::fpl

@@ -2,7 +2,6 @@
 
 #include "Error.h"
 #include "FilterInstance.h"
-#include "Utils.h"
 #include "cmdparser.hpp"
 #include "fpl/LineParser.h"
 
@@ -18,7 +17,6 @@
 namespace flint::fpl
 {
 static constexpr int VERY_BIG = 1000000;
-static constexpr const char* cachePath = "/home/victordadaciu/workspace/flint/pipelines/.cache/";
 
 struct TexturePlaceholder final
 {
@@ -50,12 +48,8 @@ PipelineLayout::PipelineLayout(const cli::Parser& parser) noexcept
     }
     else
     {
-        std::filesystem::create_directory(cachePath);
         std::filesystem::path path{filter};
-        if (!deserializeFromCache(path))
-        {
-            loadFplFromSource(path);
-        }
+        loadFplFromSource(path);
     }
 }
 
@@ -110,7 +104,7 @@ void PipelineLayout::createFromFilterName(const cli::Parser& parser) noexcept
 
 void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexcept
 {
-    std::cout << "Compiling pipeline '" << path.filename().string() << "' from source...\n";
+    std::cout << "Compiling pipeline '" << path.filename().string() << "'...\n";
     std::ifstream f(path);
     if (!f)
     {
@@ -337,94 +331,5 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
     }
     texCount = finalTexIndices.size();
     std::cout << "Compilation finished successfully\n";
-    serializeToCache(path.filename());
-}
-
-void PipelineLayout::serializeToCache(const std::string& pipelineName) const noexcept
-{
-    std::cout << "Serializing compiled pipeline and caching...\n";
-    std::vector<uint32_t> toWrite{};
-    toWrite.push_back(texCount);
-    toWrite.push_back(slots.size());
-    for (const auto& slot : slots)
-    {
-        toWrite.push_back(static_cast<uint32_t>(slot.height));
-        toWrite.push_back(static_cast<uint32_t>(slot.outputTexture));
-        utils::combine(slot.filterName, toWrite);
-        toWrite.push_back(slot.inputs.size());
-        for (const auto& input : slot.inputs)
-        {
-            toWrite.push_back(static_cast<uint32_t>(input));
-        }
-        toWrite.push_back(slot.params.size());
-        for (const auto& param : slot.params)
-        {
-            toWrite.push_back(static_cast<uint32_t>(param));
-        }
-    }
-
-    std::filesystem::path path{cachePath + pipelineName + ".cache"};
-    std::ofstream f{path, std::ios_base::binary};
-    if (!f)
-    {
-        fail("Error opening cache file for write " + path.string());
-    }
-    f.write(reinterpret_cast<const char*>(toWrite.data()), toWrite.size() * sizeof(uint32_t));
-    f.close();
-    std::cout << "Caching pipeline '" << pipelineName << "' finished successfully\n";
-}
-
-bool PipelineLayout::deserializeFromCache(const std::filesystem::path& path) noexcept
-{
-    const std::string& pipelineName = path.filename();
-    std::filesystem::path fullCachePath{cachePath + pipelineName + ".cache"};
-    if (!std::filesystem::exists(fullCachePath))
-    {
-        warn("Cache file for pipeline '" + pipelineName + "' not found");
-        return false;
-    }
-    if (std::filesystem::last_write_time(path) > std::filesystem::last_write_time(fullCachePath))
-    {
-        warn("Cache file for pipeline '" + pipelineName + "' is too old, needs to be recompiled");
-        return false;
-    }
-
-    std::cout << "Found valid cache file for pipeline '" << pipelineName << "', deserializing and loading...\n";
-
-    std::ifstream f{fullCachePath, std::ios_base::binary};
-    if (!f)
-    {
-        warn("Could not open cache file for pipeline '" + pipelineName + "', needs to be recompiled");
-        return false;
-    }
-
-    texCount = utils::readInt(f);
-    slots.resize(utils::readInt(f));
-    for (auto& slot : slots)
-    {
-        slot.height = utils::readInt(f);
-        slot.outputTexture = utils::readInt(f);
-        slot.filterName = utils::uncombine(f);
-        const auto& it = instances.find(slot.filterName);
-        if (it == instances.end())
-        {
-            instances[slot.filterName] = std::make_unique<FilterInstance>(slot.filterName);
-        }
-
-        slot.inputs.resize(utils::readInt(f));
-        for (auto& input : slot.inputs)
-        {
-            input = utils::readInt(f);
-        }
-        slot.params.resize(utils::readInt(f));
-        for (auto& param : slot.params)
-        {
-            param = utils::readInt(f);
-        }
-    }
-    f.close();
-
-    std::cout << "Deserializing finished successfully\n";
-    return true;
 }
 } // namespace flint::fpl
