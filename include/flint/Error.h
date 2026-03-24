@@ -11,7 +11,7 @@ inline void warn(std::string&& msg)
     std::cerr << "flint warning: " << msg << "\n";
 }
 
-inline void fail(std::string&& msg)
+[[noreturn]] inline void fail(std::string&& msg)
 {
     std::cerr << "flint exited with error: " << msg << "\n";
 

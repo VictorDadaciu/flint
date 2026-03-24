@@ -1,3 +1,4 @@
+#include "Args.h"
 #include "Error.h"
 #include "FilterPipeline.h"
 #include "StagingBuffer.h"
@@ -154,6 +155,8 @@ static void applyFilters(const cli::Parser& args) noexcept
 
 int main(int argc, const char* argv[])
 {
+    const auto myArgs = flint::args::parse(argc, argv);
+
     cli::Parser args = parseArgs(argc, argv);
     flint::initVk(args);
     applyFilters(args);
