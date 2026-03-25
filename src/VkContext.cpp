@@ -1,7 +1,6 @@
 #include "VkContext.h"
 
 #include "Error.h"
-#include "cmdparser.hpp"
 
 #include <array>
 #include <cstring>
@@ -244,7 +243,7 @@ void VkContext::createCommandPool() noexcept
     }
 }
 
-void VkContext::createDescriptorPool(const cli::Parser& args) noexcept
+void VkContext::createDescriptorPool() noexcept
 {
     VkDescriptorPoolSize poolSize{};
     poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -281,7 +280,7 @@ void VkContext::createDescriptorSetLayout() noexcept
     }
 }
 
-VkContext::VkContext(const cli::Parser& args) noexcept :
+VkContext::VkContext() noexcept :
     instance(nullptr), gpu(nullptr), device(nullptr), queueFamilyIndex(255), queue(nullptr), commandPool(nullptr),
     descriptorPool(nullptr), descriptorSetLayout(nullptr)
 {
@@ -292,7 +291,7 @@ VkContext::VkContext(const cli::Parser& args) noexcept :
     choosePhysicalDevice();
     createLogicalDevice();
     createCommandPool();
-    createDescriptorPool(args);
+    createDescriptorPool();
     createDescriptorSetLayout();
 }
 
@@ -332,9 +331,9 @@ void VkContext::operator=(VkContext&& other) noexcept
     other.descriptorSetLayout = nullptr;
 }
 
-void initVk(const cli::Parser& args) noexcept
+void initVk() noexcept
 {
-    ctx = std::make_unique<VkContext>(args);
+    ctx = std::make_unique<VkContext>();
 }
 
 void cleanupVk() noexcept

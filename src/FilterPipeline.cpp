@@ -1,12 +1,12 @@
 #include "FilterPipeline.h"
 
+#include "Args.h"
 #include "FilterInstance.h"
 #include "StagingBuffer.h"
 #include "SubmissionInfo.h"
 #include "SubmissionStack.h"
 #include "Texture.h"
 #include "VkContext.h"
-#include "cmdparser.hpp"
 
 #include <cassert>
 #include <cctype>
@@ -18,7 +18,7 @@
 
 namespace flint
 {
-FilterPipeline::FilterPipeline(const cli::Parser& args) noexcept : m_layout(args)
+FilterPipeline::FilterPipeline(const Args& args) noexcept : m_layout(args)
 {
 }
 

@@ -1,0 +1,2 @@
+input > box_blur(5) 3 > blur
+input, blur > mix(0.2) > output

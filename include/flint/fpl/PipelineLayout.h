@@ -1,7 +1,7 @@
 #pragma once
 
+#include "Args.h"
 #include "FilterInstance.h"
-#include "cmdparser.hpp"
 
 #include <filesystem>
 #include <string>
@@ -23,7 +23,7 @@ struct FilterSlot
 // TODO add constructors/destructors
 struct PipelineLayout final
 {
-    PipelineLayout(const cli::Parser&) noexcept;
+    PipelineLayout(const Args&) noexcept;
 
     PipelineLayout(PipelineLayout&) = delete;
     PipelineLayout(PipelineLayout&&) noexcept;
@@ -38,8 +38,6 @@ struct PipelineLayout final
     int texCount{};
 
 private:
-    void createFromFilterName(const cli::Parser&) noexcept;
-
     void loadFplFromSource(const std::filesystem::path&) noexcept;
 };
 } // namespace flint::fpl

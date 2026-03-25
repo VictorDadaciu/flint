@@ -1,8 +1,8 @@
 #pragma once
 
+#include "Args.h"
 #include "SubmissionStack.h"
 #include "Texture.h"
-#include "cmdparser.hpp"
 #include "fpl/PipelineLayout.h"
 
 #include <vector>
@@ -14,7 +14,7 @@ class FilterInstance;
 class FilterPipeline final
 {
 public:
-    FilterPipeline(const cli::Parser&) noexcept;
+    FilterPipeline(const Args&) noexcept;
 
     FilterPipeline(FilterPipeline&) = delete;
 

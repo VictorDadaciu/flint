@@ -6,7 +6,6 @@
 #include "Texture.h"
 #include "VkContext.h"
 
-#include <cmdparser.hpp>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -15,45 +14,26 @@
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
-static std::filesystem::path chooseOutputPath(const cli::Parser& args) noexcept
+static std::filesystem::path chooseOutputPath(const flint::Args& args) noexcept
 {
-    std::string outputString = args.get<std::string>("o");
-    std::filesystem::path outputPath{outputString};
+    std::filesystem::path outputPath{args.outputPath};
     bool isDir = !outputPath.has_extension();
 
     std::filesystem::path dirPath = isDir ? outputPath : outputPath.parent_path();
-    if (!outputString.empty() && !(std::filesystem::exists(dirPath) || std::filesystem::create_directories(dirPath)))
+    if (!std::filesystem::exists(dirPath) && !std::filesystem::create_directories(dirPath))
     {
-        flint::fail("Could not create directories requested by output path arg " + outputPath.string());
+        flint::fail("Could not create directories requested by output path arg " + dirPath.string());
     }
 
-    if (outputString.empty() || isDir)
+    if (isDir)
     {
-        std::filesystem::path inputPath = args.get<std::string>("i");
-        if (outputString.empty())
-        {
-            outputPath = inputPath;
-        }
-        std::string filterName = args.get<std::string>("f");
-        if (filterName.ends_with(".fpl"))
-        {
-            filterName = std::filesystem::path(filterName).stem().string();
-        }
-
-        std::string newFilename = inputPath.stem().string() + '_' + filterName + inputPath.extension().string();
-        // case when dir is given without trailing slash on linux, the "stem" is treated as both a directory and a
-        // filename for some reason
-        if (std::filesystem::is_directory(outputPath) && outputPath.has_stem())
-        {
-            outputPath /= newFilename;
-        }
-        else
-        {
-            outputPath.replace_filename(newFilename);
-        }
+        outputPath /= args.inputPath.stem().string() +
+                      '_' +
+                      args.filterPath.stem().string() +
+                      args.inputPath.extension().string();
     }
 
-    if (args.get<bool>("no-overwrite"))
+    if (args.noOverwrite.value())
     {
         std::string baseStem{outputPath.stem().string()};
         int index = 1;
@@ -65,13 +45,13 @@ static std::filesystem::path chooseOutputPath(const cli::Parser& args) noexcept
     return outputPath;
 }
 
-static void applyFilters(const cli::Parser& args) noexcept
+static void applyFilters(const flint::Args& args) noexcept
 {
     flint::FilterPipeline pipeline(args);
-    unsigned char* raw = flint::loadImage(args.get<std::string>("i"));
+    unsigned char* raw = flint::loadImage(args.inputPath);
     if (!raw || !flint::stagingBuffer.createFromRawImage(raw))
     {
-        flint::fail("Failed to open image file '" + args.get<std::string>("i") + "'");
+        flint::fail("Failed to open image file " + args.inputPath.string());
     }
     std::vector<flint::Texture> texes(pipeline.texCount());
 
@@ -128,37 +108,11 @@ static void applyFilters(const cli::Parser& args) noexcept
     flint::writeImage(chooseOutputPath(args));
 }
 
-[[nodiscard]] static cli::Parser parseArgs(int argc, const char* argv[]) noexcept
-{
-    // TODO remove default values
-    cli::Parser args(argc, argv);
-    args.set_optional<std::string>(
-        "i", "image", "/home/victordadaciu/workspace/flint/images/vault_boy.jpg", "Valid path to an image");
-    args.set_optional<std::string>("f", "filter", "", "Valid filter name");
-    args.set_optional<std::string>("o", "output", "", "Valid output path");
-    args.set_optional<bool>(
-        "no-overwrite", "no-overwrite", false, "Do not overwrite existing output file with same name");
-    args.set_optional<uint32_t>("radius", "radius", 3, "Parameter");
-    args.run_and_exit_if_error();
-
-    if (args.get<std::string>("i").empty())
-    {
-        flint::fail("No image path provided");
-    }
-    std::string filter = args.get<std::string>("f");
-    if (filter.empty() || (filter.ends_with(".fpl") && !std::filesystem::exists(filter)))
-    {
-        flint::fail("Invalid filter or filter path provided");
-    }
-    return args;
-}
-
 int main(int argc, const char* argv[])
 {
-    const auto myArgs = flint::args::parse(argc, argv);
+    const auto args = flint::args::parse(argc, argv);
 
-    cli::Parser args = parseArgs(argc, argv);
-    flint::initVk(args);
+    flint::initVk();
     applyFilters(args);
     flint::stagingBuffer.cleanup();
     flint::cleanupVk();

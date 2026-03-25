@@ -1,7 +1,5 @@
 #pragma once
 
-#include "cmdparser.hpp"
-
 #include <memory>
 #include <vulkan/vulkan.h>
 
@@ -11,7 +9,7 @@ namespace flint
 
 struct VkContext final
 {
-    VkContext(const cli::Parser&) noexcept;
+    VkContext() noexcept;
 
     VkContext(VkContext&) = delete;
 
@@ -45,14 +43,14 @@ private:
 
     void createLogicalDevice() noexcept;
 
-    void createDescriptorPool(const cli::Parser&) noexcept;
+    void createDescriptorPool() noexcept;
 
     void createDescriptorSetLayout() noexcept;
 
     void createCommandPool() noexcept;
 };
 
-void initVk(const cli::Parser&) noexcept;
+void initVk() noexcept;
 void cleanupVk() noexcept;
 
 bool findMemoryType(uint32_t, VkMemoryPropertyFlags, int&) noexcept;

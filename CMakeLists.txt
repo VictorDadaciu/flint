@@ -18,13 +18,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(stb)
 
-# CmdParser
-FetchContent_Declare(
-    cmdparser
-    GIT_REPOSITORY https://github.com/FlorianRappl/CmdParser
-)
-FetchContent_MakeAvailable(cmdparser)
-
 # shaderc
 FetchContent_Declare(
     shaderc
@@ -47,7 +40,6 @@ target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan shaderc)
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${Vulkan_INCLUDE_DIRS}
     ${stb_SOURCE_DIR}
-    ${cmdparser_SOURCE_DIR}
     ${shaderc_SOURCE_DIR}
     include/${PROJECT_NAME}
 )

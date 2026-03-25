@@ -2,11 +2,9 @@
 
 #include "Error.h"
 
-#include <charconv>
 #include <filesystem>
 #include <string>
 #include <string_view>
-#include <variant>
 #include <vector>
 #include <vulkan/vulkan_core.h>
 
@@ -27,11 +25,37 @@ namespace flint::args
     fail("Invalid args, setting " + arg + " is required");
 }
 
+static void checkForHelpOrVersion(const std::vector<std::string_view>& args) noexcept
+{
+    if (args.empty() || (args.size() == 1 && (args[0] == "-h" || args[0] == "--help")))
+    {
+        // clang-format off
+        std::cout << "flint, a command-line tool for image filtering.\n";
+        std::cout << "Usage: flint (--input <path>) (--filter <path>) [options]\n";
+        std::cout << "  Arguments can be provided in any order.\n\n";
+        std::cout << "Arguments:\n";
+        std::cout << "  -i,--input <path>   Path to an image file, supports jpg, png, bmp, tga, and hdr. REQUIRED\n";
+        std::cout << "  -f,--filter <path>  Path to a fpl file. REQUIRED\n";
+        std::cout << "  -o,--output <path>  Path to output the resulting input to. Default: path to the input's directory. OPTIONAL\n";
+        std::cout << "  --no-overwrite      If not set, overwrite output file. Otherwise, create new output file with index at the end. Default: NOT set. OPTIONAL\n";
+        // clang-format on
+        std::exit(0);
+    }
+
+    if (args.size() == 1 && args[0] == "--version")
+    {
+        std::cout << "flint v1.0.0\n";
+        std::exit(0);
+    }
+}
+
 Args parse(int argc, const char** argv) noexcept
 {
     Args ret{};
 
     std::vector<std::string_view> args(argv + 1, argv + argc);
+    checkForHelpOrVersion(args);
+
     for (int i = 0; i < args.size(); ++i)
     {
         auto& arg = args[i];
@@ -49,7 +73,7 @@ Args parse(int argc, const char** argv) noexcept
         }
         else if (arg == "-f" || arg == "--filter")
         {
-            if (!ret.filter.empty())
+            if (!ret.filterPath.empty())
             {
                 uniqueError(i);
             }
@@ -57,7 +81,7 @@ Args parse(int argc, const char** argv) noexcept
             {
                 unexpectedEndError();
             }
-            ret.filter = args[i];
+            ret.filterPath = std::filesystem::path(args[i]);
         }
         else if (arg == "-o" || arg == "--output")
         {
@@ -79,49 +103,9 @@ Args parse(int argc, const char** argv) noexcept
             }
             ret.noOverwrite = true;
         }
-        else if (arg.starts_with("--"))
+        else if (arg == "-h" || arg == "--help" || arg == "--version")
         {
-            arg.remove_prefix(2);
-            std::string name = std::string(arg);
-            std::cout << name << "\n";
-            const auto& it = ret.params.find(name);
-            if (it == ret.params.end())
-            {
-                fail("Invalid parameter passed as arg '--" + name + "'");
-            }
-            if (++i >= args.size())
-            {
-                unexpectedEndError();
-            }
-            auto value = args[i];
-            bool includesDot = value.find('.') != value.npos;
-            if (std::holds_alternative<uint32_t>(it->second) && !includesDot)
-            {
-                uint32_t u{};
-                auto res = std::from_chars(value.data(), value.data() + value.size(), u);
-                if (res.ec == std::errc::invalid_argument)
-                {
-                    fail("Unexpected value passed for arg '--" + name + "', expected unsigned integer");
-                }
-                ret.params[name] = u;
-            }
-            else if (std::holds_alternative<float>(it->second) && includesDot)
-            {
-                float f{};
-                auto res = std::from_chars(value.data(), value.data() + value.size(), f);
-                if (res.ec == std::errc::invalid_argument)
-                {
-                    fail("Unexpected value passed for arg '--" + name + "', expected float");
-                }
-                ret.params[name] = f;
-            }
-            else
-            {
-                fail("Unexpected value passed for arg '--" +
-                     name +
-                     "', expected " +
-                     (std::holds_alternative<uint32_t>(it->second) ? "unsigned integer" : "float"));
-            }
+            continue;
         }
         else
         {
@@ -134,7 +118,7 @@ Args parse(int argc, const char** argv) noexcept
     {
         requiresValueError("-i, --input");
     }
-    if (ret.filter.empty())
+    if (ret.filterPath.empty())
     {
         requiresValueError("-f, --filter");
     }

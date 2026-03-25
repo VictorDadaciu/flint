@@ -2,7 +2,6 @@
 
 #include "Error.h"
 #include "FilterInstance.h"
-#include "cmdparser.hpp"
 #include "fpl/LineParser.h"
 
 #include <cstdint>
@@ -39,76 +38,13 @@ static int findTexPlaceholder(const std::string_view& name,
     return -1;
 }
 
-PipelineLayout::PipelineLayout(const cli::Parser& parser) noexcept
+PipelineLayout::PipelineLayout(const Args& args) noexcept
 {
-    std::string filter = parser.get<std::string>("f");
-    if (!filter.ends_with(".fpl"))
-    {
-        createFromFilterName(parser);
-    }
-    else
-    {
-        std::filesystem::path path{filter};
-        loadFplFromSource(path);
-    }
-}
-
-PipelineLayout::PipelineLayout(PipelineLayout&& other) noexcept :
-    instances(std::move(other.instances)), slots(std::move(other.slots)), texCount(other.texCount)
-{
-    other.texCount = 0;
-}
-
-void PipelineLayout::operator=(PipelineLayout&& other) noexcept
-{
-    instances = std::move(other.instances);
-    slots = std::move(other.slots);
-    texCount = other.texCount;
-    other.texCount = 0;
-}
-
-void PipelineLayout::createFromFilterName(const cli::Parser& parser) noexcept
-{
-    texCount = 2;
-
-    FilterSlot slot{};
-    slot.inputs = {-1};
-    slot.outputTexture = 1;
-    slot.filterName = parser.get<std::string>("f");
-
-    auto instance = std::make_unique<FilterInstance>(slot.filterName);
-    if (instance->inputCount > 1)
-    {
-        fail("Invalid usage, cannot call a filter that needs more than one input from the command-line");
-    }
-
-    int i = 0;
-    slot.params.resize(instance->params.size());
-    for (const auto& param : instance->params)
-    {
-        const std::string& paramName = std::get<0>(param);
-        bool isFloat = std::get<1>(param);
-        if (isFloat)
-        {
-            *(float*)(&slot.params[i++]) = parser.get<float>(paramName);
-        }
-        else
-        {
-            slot.params[i++] = parser.get<uint32_t>(paramName);
-        }
-    }
-
-    slots.push_back(slot);
-    instances[slot.filterName] = std::move(instance);
-}
-
-void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexcept
-{
-    std::cout << "Compiling pipeline '" << path.filename().string() << "'...\n";
-    std::ifstream f(path);
+    std::cout << "Compiling pipeline '" << args.filterPath.filename().string() << "'...\n";
+    std::ifstream f(args.filterPath);
     if (!f)
     {
-        fail("Error opening fpl file '" + path.string() + "'");
+        fail("Error opening fpl file '" + args.filterPath.string() + "'");
     }
 
     std::vector<TexturePlaceholder> texPlaceholders{};
@@ -118,7 +54,7 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
     std::string text;
     while (std::getline(f, text))
     {
-        LineInfo info = LineParser(path, text, ++line).parse();
+        LineInfo info = LineParser(args.filterPath, text, ++line).parse();
         if (info.empty)
         {
             continue;
@@ -138,7 +74,7 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
         {
             if (instance->params.size() != info.params.size())
             {
-                fail(fplErrorPrefix(path, line, info.filterType.c) +
+                fail(fplErrorPrefix(args.filterPath, line, info.filterType.c) +
                      "Invalid syntax, expected " +
                      std::to_string(instance->params.size()) +
                      " parameter(s) in call to filter '" +
@@ -158,7 +94,7 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
                 const auto& it = info.params.find(info.namedParams ? paramName : std::to_string(i));
                 if (it == info.params.end())
                 {
-                    fail(fplErrorPrefix(path, line, info.filterType.c) +
+                    fail(fplErrorPrefix(args.filterPath, line, info.filterType.c) +
                          "Invalid syntax, parameter '" +
                          paramName +
                          "' not present in call to filter '" +
@@ -175,7 +111,7 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
                 }
                 else
                 {
-                    fail(fplErrorPrefix(path, line, info.filterType.c) +
+                    fail(fplErrorPrefix(args.filterPath, line, info.filterType.c) +
                          "Invalid syntax, parameter '" +
                          paramName +
                          "' in call to filter '" +
@@ -189,7 +125,7 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
         {
             if (info.inputs.size() != instance->inputCount)
             {
-                fail(fplErrorPrefix(path, line, info.inputs[0].c) +
+                fail(fplErrorPrefix(args.filterPath, line, info.inputs[0].c) +
                      "Invalid syntax, filter '" +
                      filterSlot.filterName +
                      "' expects " +
@@ -203,13 +139,13 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
                 std::string_view inputName = std::get<std::string_view>(in.val);
                 if (inputName == "output")
                 {
-                    fail(fplErrorPrefix(path, line, in.c) +
+                    fail(fplErrorPrefix(args.filterPath, line, in.c) +
                          "Invalid syntax, reserved keyword 'output' can't be an input");
                 }
                 int texIndex = findTexPlaceholder(inputName, texPlaceholders);
                 if (texIndex < 0)
                 {
-                    fail(fplErrorPrefix(path, line, in.c) +
+                    fail(fplErrorPrefix(args.filterPath, line, in.c) +
                          "Invalid syntax, '" +
                          std::string(inputName) +
                          "' requested as input, but has not been created yet");
@@ -221,13 +157,13 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
         std::string_view outputName = std::get<std::string_view>(info.output.val);
         if (outputName == "input")
         {
-            fail(fplErrorPrefix(path, line, info.output.c) +
+            fail(fplErrorPrefix(args.filterPath, line, info.output.c) +
                  "Invalid syntax, reserved keyword 'input' can't be an output");
         }
         int texIndex = findTexPlaceholder(outputName, texPlaceholders);
         if (texIndex >= 0)
         {
-            fail(fplErrorPrefix(path, line, info.output.c) +
+            fail(fplErrorPrefix(args.filterPath, line, info.output.c) +
                  "Invalid syntax, cannot overwrite '" +
                  std::string(outputName) +
                  "', must output to a new texture");
@@ -237,14 +173,14 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
         int iterations = info.iterations.type == TokenType::COUNT ? 1 : std::get<uint32_t>(info.iterations.val);
         if (iterations < 1)
         {
-            fail(fplErrorPrefix(path, line, info.iterations.c) +
+            fail(fplErrorPrefix(args.filterPath, line, info.iterations.c) +
                  "Invalid argument, iterations must be a positive non-null integer value");
         }
         if (iterations > 1)
         {
             if (instance->inputCount > 1)
             {
-                fail(fplErrorPrefix(path, line, info.iterations.c) +
+                fail(fplErrorPrefix(args.filterPath, line, info.iterations.c) +
                      "Invalid syntax, filters with more than 1 input cannot be iterated");
             }
             for (int i = 1; i < iterations; ++i)
@@ -288,7 +224,7 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
         if (sweep == 0)
         {
             fail("Ill-formed fpl file '" +
-                 path.string() +
+                 args.filterPath.string() +
                  "', there must be at least one filter operation which only accepts the keyword 'input' as input(s)");
         }
     }
@@ -331,5 +267,19 @@ void PipelineLayout::loadFplFromSource(const std::filesystem::path& path) noexce
     }
     texCount = finalTexIndices.size();
     std::cout << "Compilation finished successfully\n";
+}
+
+PipelineLayout::PipelineLayout(PipelineLayout&& other) noexcept :
+    instances(std::move(other.instances)), slots(std::move(other.slots)), texCount(other.texCount)
+{
+    other.texCount = 0;
+}
+
+void PipelineLayout::operator=(PipelineLayout&& other) noexcept
+{
+    instances = std::move(other.instances);
+    slots = std::move(other.slots);
+    texCount = other.texCount;
+    other.texCount = 0;
 }
 } // namespace flint::fpl
