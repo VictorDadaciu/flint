@@ -1,7 +1,8 @@
 #include "fpl/PipelineLayout.h"
 
-#include "Error.h"
 #include "FilterInstance.h"
+#include "QLog.h"
+#include "Utils.h"
 #include "fpl/LineParser.h"
 
 #include <cstdint>
@@ -40,7 +41,7 @@ static int findTexPlaceholder(const std::string_view& name,
 
 PipelineLayout::PipelineLayout(const Args& args) noexcept
 {
-    std::cout << "Compiling pipeline '" << args.filterPath.filename().string() << "'...\n";
+    qlog::trace("Compiling pipeline '" + args.filterPath.filename().string() + "'...");
     std::ifstream f(args.filterPath);
     if (!f)
     {
@@ -266,7 +267,7 @@ PipelineLayout::PipelineLayout(const Args& args) noexcept
         }
     }
     texCount = finalTexIndices.size();
-    std::cout << "Compilation finished successfully\n";
+    qlog::trace("Compilation finished successfully");
 }
 
 PipelineLayout::PipelineLayout(PipelineLayout&& other) noexcept :

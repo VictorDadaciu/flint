@@ -1,18 +1,17 @@
 #include "Utils.h"
 
-#include "Error.h"
-
+#include <QLog.h>
 #include <fstream>
 #include <iostream>
 
-namespace flint::utils
+namespace flint
 {
 std::vector<char> readEntireFile(const std::filesystem::path& path) noexcept
 {
     std::ifstream file(path, std::ios::ate | std::ios::binary);
     if (!file.is_open())
     {
-        warn("Failed to open file '" + path.string() + "' for read");
+        qlog::warn("Failed to open file '" + path.string() + "' for read");
         return {};
     }
 
@@ -35,10 +34,10 @@ std::string uncombine(std::ifstream& f) noexcept
 {
     std::vector<char> ret{};
 
-    int size = utils::readInt(f);
+    int size = readInt(f);
     for (int i = 0; i < size / 4; ++i)
     {
-        uint32_t code = utils::readInt(f);
+        uint32_t code = readInt(f);
         ret.push_back(static_cast<char>(((code & (0x000000ff << 24)) >> 24) & 0x000000ff));
         ret.push_back(static_cast<char>(((code & (0x000000ff << 16)) >> 16) & 0x000000ff));
         ret.push_back(static_cast<char>(((code & (0x000000ff << 8)) >> 8) & 0x000000ff));
@@ -51,7 +50,7 @@ std::string uncombine(std::ifstream& f) noexcept
         return std::string{ret.cbegin(), ret.cend()};
     }
 
-    uint32_t rem = utils::readInt(f);
+    uint32_t rem = readInt(f);
     for (int i = 0; i < howManyLeft; ++i)
     {
         int bits = 8 * (3 - i);
@@ -88,4 +87,4 @@ void combine(const std::string& s, std::vector<uint32_t>& toWrite) noexcept
     toWrite.push_back(last);
 }
 
-} // namespace flint::utils
+} // namespace flint

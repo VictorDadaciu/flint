@@ -1,11 +1,11 @@
 #include "FilterInstance.h"
 
-#include "Error.h"
 #include "Utils.h"
 #include "VkContext.h"
 #include "shaderc/shaderc.h"
 #include "shaderc/shaderc.hpp"
 
+#include <QLog.h>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -122,12 +122,12 @@ VkShaderModule FilterInstance::tryLoadFromCache(const std::string& filterName) n
     std::filesystem::path spvPath = cachePath + filterName + ".comp.spv";
     if (!std::filesystem::exists(spvPath))
     {
-        warn("SPIRV file does not exist for '" + filterName + "', needs to be recompiled");
+        qlog::warn("SPIRV file does not exist for '" + filterName + "', needs to be recompiled");
         return nullptr;
     }
     if (std::filesystem::last_write_time(path) > std::filesystem::last_write_time(spvPath))
     {
-        warn("SPIRV file for '" + filterName + "' is too old, needs to be recompiled");
+        qlog::warn("SPIRV file for '" + filterName + "' is too old, needs to be recompiled");
         return nullptr;
     }
 
@@ -136,7 +136,7 @@ VkShaderModule FilterInstance::tryLoadFromCache(const std::string& filterName) n
         return nullptr;
     }
 
-    const auto buffer = utils::readEntireFile(spvPath);
+    const auto buffer = readEntireFile(spvPath);
     if (buffer.empty())
     {
         return nullptr;
@@ -186,12 +186,12 @@ compile(const shaderc::Compiler& compiler, const std::string& name, const std::s
 
 VkShaderModule FilterInstance::compileFromSource(const std::string& filterName) noexcept
 {
-    std::cout << "Compiling '" << filterName << "'\n";
+    qlog::trace("Compiling '" + filterName + "'");
     std::filesystem::create_directory(cachePath);
     shaderc::Compiler compiler{};
     std::string src;
     {
-        auto fileVec = utils::readEntireFile(filterPath + filterName + ".comp");
+        auto fileVec = readEntireFile(filterPath + filterName + ".comp");
         if (fileVec.empty())
         {
             fail("Shader file for '" + filterName + "' was empty, could not compile");
@@ -262,13 +262,13 @@ VkShaderModule FilterInstance::compileFromSource(const std::string& filterName) 
 
 bool FilterInstance::serializeToCache(const std::string& filterName) const noexcept
 {
-    std::cout << "Serializing compiled pipeline and caching...\n";
+    qlog::trace("Serializing compiled pipeline and caching...");
     std::vector<uint32_t> toWrite{};
     toWrite.push_back(inputCount);
     toWrite.push_back(params.size());
     for (const auto& param : params)
     {
-        utils::combine(std::get<0>(param), toWrite);
+        combine(std::get<0>(param), toWrite);
         toWrite.push_back(std::get<1>(param));
     }
 
@@ -281,7 +281,7 @@ bool FilterInstance::serializeToCache(const std::string& filterName) const noexc
     f.write(reinterpret_cast<const char*>(toWrite.data()), toWrite.size() * sizeof(uint32_t));
     f.close();
 
-    std::cout << "  Caching filter '" << filterName << "' finished successfully\n";
+    qlog::trace("Caching filter '" + filterName + "' finished successfully");
     return true;
 }
 
@@ -290,28 +290,28 @@ bool FilterInstance::deserializeFromCache(const std::string& filterName) noexcep
     std::filesystem::path fullCachePath{cachePath + filterName + ".cache"};
     if (!std::filesystem::exists(fullCachePath))
     {
-        warn("Cache file for '" + filterName + "' not found, needs to be recompiled");
+        qlog::trace("Cache file for '" + filterName + "' not found, needs to be recompiled");
         return false;
     }
 
-    std::cout << "Found cache file for filter '" << filterName << "', deserializing and loading...\n";
+    qlog::trace("Found cache file for filter '" + filterName + "', deserializing and loading...");
 
     std::ifstream f{fullCachePath, std::ios_base::binary};
     if (!f)
     {
-        warn("Could not open cache file for filter '" + filterName + "', needs to be recompiled");
+        qlog::trace("Could not open cache file for filter '" + filterName + "', needs to be recompiled");
         return false;
     }
-    inputCount = utils::readInt(f);
-    params.resize(utils::readInt(f));
+    inputCount = readInt(f);
+    params.resize(readInt(f));
     for (auto& param : params)
     {
-        std::get<0>(param) = utils::uncombine(f);
-        std::get<1>(param) = utils::readInt(f);
+        std::get<0>(param) = uncombine(f);
+        std::get<1>(param) = readInt(f);
     }
     f.close();
 
-    std::cout << "  Deserialization finished successfully\n";
+    qlog::trace("Deserialization finished successfully");
     return true;
 }
 } // namespace flint

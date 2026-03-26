@@ -8,7 +8,7 @@ extern struct StagingBuffer final
 {
     StagingBuffer() = default;
 
-    bool createFromRawImage(unsigned char*);
+    void createFromRawImage(unsigned char*);
 
     unsigned char* getAsRawImage() const noexcept;
 

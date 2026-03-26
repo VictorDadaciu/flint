@@ -1,7 +1,6 @@
 #pragma once
 
 #include <filesystem>
-#include <optional>
 
 namespace flint
 {
@@ -10,7 +9,8 @@ struct Args
     std::filesystem::path inputPath{};
     std::filesystem::path outputPath{};
     std::filesystem::path filterPath{};
-    std::optional<bool> noOverwrite{};
+    bool noOverwrite{};
+    bool verbose{};
 };
 
 namespace args

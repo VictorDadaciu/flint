@@ -1,6 +1,7 @@
 #include "Args.h"
 
-#include "Error.h"
+#include "QLog.h"
+#include "Utils.h"
 
 #include <filesystem>
 #include <string>
@@ -97,11 +98,19 @@ Args parse(int argc, const char** argv) noexcept
         }
         else if (arg == "--no-override")
         {
-            if (ret.noOverwrite.has_value())
+            if (ret.noOverwrite)
             {
                 uniqueError(i);
             }
             ret.noOverwrite = true;
+        }
+        else if (arg == "-v" || arg == "--verbose")
+        {
+            if (ret.verbose)
+            {
+                uniqueError(i);
+            }
+            ret.verbose = true;
         }
         else if (arg == "-h" || arg == "--help" || arg == "--version")
         {
@@ -123,10 +132,11 @@ Args parse(int argc, const char** argv) noexcept
         requiresValueError("-f, --filter");
     }
 
-    if (!ret.noOverwrite.has_value())
+    if (ret.verbose)
     {
-        ret.noOverwrite = false;
+        qlog::set_log_level(qlog::LogLevel::TRACE);
     }
+
     if (ret.outputPath.empty())
     {
         ret.outputPath = ret.inputPath.parent_path();

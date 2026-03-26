@@ -1,9 +1,10 @@
 #include "Args.h"
-#include "Error.h"
 #include "FilterPipeline.h"
+#include "QLog.h"
 #include "StagingBuffer.h"
 #include "SubmissionStack.h"
 #include "Texture.h"
+#include "Utils.h"
 #include "VkContext.h"
 
 #include <cstdint>
@@ -33,7 +34,7 @@ static std::filesystem::path chooseOutputPath(const flint::Args& args) noexcept
                       args.inputPath.extension().string();
     }
 
-    if (args.noOverwrite.value())
+    if (args.noOverwrite)
     {
         std::string baseStem{outputPath.stem().string()};
         int index = 1;
@@ -49,10 +50,12 @@ static void applyFilters(const flint::Args& args) noexcept
 {
     flint::FilterPipeline pipeline(args);
     unsigned char* raw = flint::loadImage(args.inputPath);
-    if (!raw || !flint::stagingBuffer.createFromRawImage(raw))
+    if (!raw)
     {
         flint::fail("Failed to open image file " + args.inputPath.string());
     }
+    flint::stagingBuffer.createFromRawImage(raw);
+
     std::vector<flint::Texture> texes(pipeline.texCount());
 
     flint::SubmissionStack submissions{};
@@ -110,6 +113,11 @@ static void applyFilters(const flint::Args& args) noexcept
 
 int main(int argc, const char* argv[])
 {
+    qlog::init();
+    qlog::set_name("flint");
+#ifndef NDEBUG
+    qlog::set_log_level(qlog::LogLevel::DEBUG);
+#endif
     const auto args = flint::args::parse(argc, argv);
 
     flint::initVk();

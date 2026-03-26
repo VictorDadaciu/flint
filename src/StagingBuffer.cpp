@@ -1,11 +1,11 @@
 #include "StagingBuffer.h"
 
 #include "Texture.h"
+#include "Utils.h"
 #include "VkContext.h"
 
 #include <cstring>
 #include <emmintrin.h>
-#include <iostream>
 #include <stb_image.h>
 #include <vulkan/vulkan_core.h>
 
@@ -19,7 +19,7 @@ void StagingBuffer::cleanup() noexcept
     vkFreeMemory(ctx->device, memory, nullptr);
 }
 
-bool StagingBuffer::createFromRawImage(unsigned char* raw)
+void StagingBuffer::createFromRawImage(unsigned char* raw)
 {
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -29,10 +29,7 @@ bool StagingBuffer::createFromRawImage(unsigned char* raw)
 
     if (VK_FAILED(vkCreateBuffer(ctx->device, &bufferInfo, nullptr, &buffer)))
     {
-        std::cout << "Failed to create vulkan buffer\n";
-        stbi_image_free(raw);
-        cleanup();
-        return false;
+        fail("Failed to create vulkan buffer");
     }
 
     VkMemoryRequirements memRequirements{};
@@ -42,10 +39,7 @@ bool StagingBuffer::createFromRawImage(unsigned char* raw)
                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                         memoryTypeIndex))
     {
-        std::cout << "Failed to find suitable memory for vulkan buffer\n";
-        stbi_image_free(raw);
-        cleanup();
-        return false;
+        fail("Failed to find suitable memory for vulkan buffer");
     }
 
     VkMemoryAllocateInfo allocInfo{};
@@ -55,10 +49,7 @@ bool StagingBuffer::createFromRawImage(unsigned char* raw)
 
     if (VK_FAILED(vkAllocateMemory(ctx->device, &allocInfo, nullptr, &memory)))
     {
-        std::cout << "Failed to allocate memory on device for vulkan buffer\n";
-        stbi_image_free(raw);
-        cleanup();
-        return false;
+        fail("Failed to allocate memory on device for vulkan buffer");
     }
 
     vkBindBufferMemory(ctx->device, buffer, memory, 0);
@@ -68,7 +59,6 @@ bool StagingBuffer::createFromRawImage(unsigned char* raw)
     memcpy(data, raw, imageMetadata.size());
     vkUnmapMemory(ctx->device, memory);
     stbi_image_free(raw);
-    return true;
 }
 
 unsigned char* StagingBuffer::getAsRawImage() const noexcept

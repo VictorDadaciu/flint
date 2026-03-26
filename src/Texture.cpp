@@ -1,7 +1,8 @@
 #include "Texture.h"
 
-#include "Error.h"
+#include "QLog.h"
 #include "StagingBuffer.h"
+#include "Utils.h"
 #include "VkContext.h"
 
 #include <filesystem>
@@ -33,7 +34,7 @@ unsigned char* loadImage(const std::filesystem::path& path) noexcept
 
 void writeImage(const std::filesystem::path& path) noexcept
 {
-    std::cout << "Outputting final image to " << path << "\n";
+    qlog::info("Outputting final image to " + path.string());
     unsigned char* raw = stagingBuffer.getAsRawImage();
     stbi_write_jpg(path.c_str(), imageMetadata.width, imageMetadata.height, 4, raw, 100);
     stbi_image_free(raw);

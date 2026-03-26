@@ -1,10 +1,10 @@
 #include "VkContext.h"
 
-#include "Error.h"
+#include "QLog.h"
+#include "Utils.h"
 
 #include <array>
 #include <cstring>
-#include <iostream>
 #include <memory>
 #include <vector>
 #include <vulkan/vulkan_core.h>
@@ -25,7 +25,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
 {
     if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
     {
-        std::cout << "Validation layer: " << pCallbackData->pMessage << std::endl;
+        qlog::debug("Validation layer: " + std::string(pCallbackData->pMessage));
     }
 
     return VK_FALSE;

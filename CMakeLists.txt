@@ -11,12 +11,19 @@ include(FetchContent)
 # Vulkan
 find_package(Vulkan REQUIRED)
 
+# qlog
+FetchContent_Declare(
+    qlog
+    GIT_REPOSITORY https://github.com/VictorDadaciu/qlog
+    GIT_TAG origin/main
+)
+
 # STB
 FetchContent_Declare(
     stb
     GIT_REPOSITORY https://github.com/nothings/stb
 )
-FetchContent_MakeAvailable(stb)
+FetchContent_MakeAvailable(stb qlog)
 
 # shaderc
 FetchContent_Declare(
@@ -35,10 +42,11 @@ file(GLOB_RECURSE FLINT_SOURCES ${PROJECT_SOURCE_DIR}/src/*.cpp ${PROJECT_SOURCE
 
 add_executable(${PROJECT_NAME} ${FLINT_SOURCES})
 
-target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan shaderc)
+target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan qlog shaderc)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${Vulkan_INCLUDE_DIRS}
+    ${qlog_SOURCE_DIR}
     ${stb_SOURCE_DIR}
     ${shaderc_SOURCE_DIR}
     include/${PROJECT_NAME}
